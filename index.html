@@ -802,31 +802,36 @@ async function syncDatabaseFromCloud() {
       document.getElementById("app-view").innerHTML = html;
     }
 
-    function renderAttendanceSheet(courseId) {
-      if (!activeCohort) {
-        for (const c of APP_DATA.cohorts) {
-          const found = c.courses.find(x => x.id === courseId);
-          if (found) {
-            activeCohort = c;
-            activeCourse = found;
-            break;
-          }
-        }
-      } else {
-        activeCourse = activeCohort.courses.find(c => c.id === courseId);
-      }
-      
-      updateBreadcrumbs();
+async function renderAttendanceSheet(courseId) {
+  // Sync live records from Google Sheets whenever opening a course
+  await syncDatabaseFromCloud();
 
-      if (!attendanceDB[courseId]) {
-        attendanceDB[courseId] = { sessions: [], records: {}, incidents: {} };
+  if (!activeCohort) {
+    for (const c of APP_DATA.cohorts) {
+      const found = c.courses.find(x => x.id === courseId);
+      if (found) {
+        activeCohort = c;
+        activeCourse = found;
+        break;
       }
-      if (!attendanceDB[courseId].incidents) {
-        attendanceDB[courseId].incidents = {};
-      }
+    }
+  } else {
+    activeCourse = activeCohort.courses.find(c => c.id === courseId);
+  }
+  
+  updateBreadcrumbs();
 
-      const courseRecord = attendanceDB[courseId];
-      const canEdit = currentUser.role === "teacher" && currentUser.editableCourses.includes(courseId);
+  if (!attendanceDB[courseId]) {
+    attendanceDB[courseId] = { sessions: [], records: {}, incidents: {} };
+  }
+  if (!attendanceDB[courseId].incidents) {
+    attendanceDB[courseId].incidents = {};
+  }
+
+  const courseRecord = attendanceDB[courseId];
+  const canEdit = currentUser.role === "teacher" && currentUser.editableCourses.includes(courseId);
+
+  // Remainder of your renderAttendanceSheet code stays exactly the same...
 
       courseRecord.sessions.sort((a, b) => new Date(a) - new Date(b));
 
