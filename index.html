@@ -561,36 +561,39 @@
       localStorage.setItem("IELTS_ATTENDANCE_DB", JSON.stringify(attendanceDB));
     }
 
-    async function syncDatabaseFromCloud() {
-      try {
-        const targetUrl = GOOGLE_SCRIPT_API_URL + (GOOGLE_SCRIPT_API_URL.includes("?") ? "&" : "?") + "t=" + Date.now();
-        console.log("Fetching latest database from:", targetUrl);
+   async function syncDatabaseFromCloud() {
+  try {
+    // Adding a completely unique timestamp parameter absolutely forces the browser to pull live data
+    const cacheBuster = "cb=" + new Date().getTime();
+    const targetUrl = GOOGLE_SCRIPT_API_URL + (GOOGLE_SCRIPT_API_URL.includes("?") ? "&" : "?") + cacheBuster;
 
-        const res = await fetch(targetUrl, {
-          method: "GET",
-          redirect: "follow"
-        });
-
-        if (!res.ok) {
-          throw new Error("HTTP error " + res.status);
-        }
-
-        const cloudDB = await res.json();
-        console.log("Live Cloud Data Received:", cloudDB);
-
-        if (cloudDB && typeof cloudDB === "object" && !cloudDB.error) {
-          attendanceDB = cloudDB;
-          saveAttendanceDBLocally();
-          return true;
-        } else {
-          console.error("Backend error payload:", cloudDB);
-        }
-      } catch (err) {
-        console.error("Failed to load live data from Google Sheets:", err);
-        attendanceDB = JSON.parse(localStorage.getItem("IELTS_ATTENDANCE_DB") || "{}");
+    const res = await fetch(targetUrl, {
+      method: "GET",
+      redirect: "follow",
+      headers: {
+        "Accept": "application/json"
       }
-      return false;
+    });
+
+    if (!res.ok) {
+      throw new Error("HTTP connection failed: " + res.status);
     }
+
+    const cloudDB = await res.json();
+
+    // Verify Google actually returned proper database JSON, not an error message
+    if (cloudDB && typeof cloudDB === "object" && !cloudDB.error) {
+      attendanceDB = cloudDB;
+      saveAttendanceDBLocally();
+      console.log("Cloud data successfully synced.");
+      return true;
+    }
+  } catch (err) {
+    console.error("Cloud connection blocked or failed. Using local cache.", err);
+    attendanceDB = JSON.parse(localStorage.getItem("IELTS_ATTENDANCE_DB") || "{}");
+  }
+  return false;
+}
 
     function dispatchCloudMutation(payload) {
       // Use text/plain to avoid preflight OPTIONS block in Apps Script
