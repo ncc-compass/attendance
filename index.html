@@ -564,31 +564,36 @@
       localStorage.setItem("IELTS_ATTENDANCE_DB", JSON.stringify(attendanceDB));
     }
 
-    async function syncDatabaseFromCloud() {
-      try {
-        const cacheBuster = `?t=${Date.now()}`;
-        const res = await fetch(GOOGLE_SCRIPT_API_URL + cacheBuster);
-        const cloudDB = await res.json();
-        if (cloudDB && typeof cloudDB === "object" && !cloudDB.error) {
-          attendanceDB = cloudDB;
-          saveAttendanceDBLocally();
-          return true;
-        }
-      } catch (err) {
-        console.warn("Backend read failed, falling back to local storage.", err);
-        attendanceDB = JSON.parse(localStorage.getItem("IELTS_ATTENDANCE_DB") || "{}");
-      }
-      return false;
+async function syncDatabaseFromCloud() {
+  try {
+    const targetUrl = GOOGLE_SCRIPT_API_URL + (GOOGLE_SCRIPT_API_URL.includes("?") ? "&" : "?") + "t=" + Date.now();
+    console.log("Fetching latest database from:", targetUrl);
+
+    const res = await fetch(targetUrl, {
+      method: "GET",
+      redirect: "follow"
+    });
+
+    if (!res.ok) {
+      throw new Error("HTTP error " + res.status);
     }
 
-    function dispatchCloudMutation(payload) {
-      fetch(GOOGLE_SCRIPT_API_URL, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      }).catch(err => console.error("Cloud mutation failed", err));
+    const cloudDB = await res.json();
+    console.log("Live Cloud Data Received:", cloudDB);
+
+    if (cloudDB && typeof cloudDB === "object" && !cloudDB.error) {
+      attendanceDB = cloudDB;
+      saveAttendanceDBLocally();
+      return true;
+    } else {
+      console.error("Backend error payload:", cloudDB);
     }
+  } catch (err) {
+    console.error("Failed to load live data from Google Sheets:", err);
+    attendanceDB = JSON.parse(localStorage.getItem("IELTS_ATTENDANCE_DB") || "{}");
+  }
+  return false;
+}
 
     function formatClassDate(isoDateStr) {
       if (!isoDateStr) return "";
