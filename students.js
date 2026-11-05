@@ -1,6 +1,3 @@
-// students.js
-
-// Shared roster for Winter 2026
 const WINTER_2026_STUDENTS = [
   { id: "229103", name: "Easin Al Efaz" },
   { id: "229102", name: "Maher Ahmed Khan" },
