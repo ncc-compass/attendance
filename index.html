@@ -563,33 +563,31 @@
 
    async function syncDatabaseFromCloud() {
   try {
-    // Adding a completely unique timestamp parameter absolutely forces the browser to pull live data
     const cacheBuster = "cb=" + new Date().getTime();
     const targetUrl = GOOGLE_SCRIPT_API_URL + (GOOGLE_SCRIPT_API_URL.includes("?") ? "&" : "?") + cacheBuster;
+    console.log("Fetching live data...");
 
+    // We removed 'headers' here so the browser does not trigger a CORS block
     const res = await fetch(targetUrl, {
       method: "GET",
-      redirect: "follow",
-      headers: {
-        "Accept": "application/json"
-      }
+      redirect: "follow"
     });
 
     if (!res.ok) {
-      throw new Error("HTTP connection failed: " + res.status);
+      throw new Error("HTTP error " + res.status);
     }
 
     const cloudDB = await res.json();
-
-    // Verify Google actually returned proper database JSON, not an error message
+    
+    // Validate we actually received data and not an error response
     if (cloudDB && typeof cloudDB === "object" && !cloudDB.error) {
       attendanceDB = cloudDB;
       saveAttendanceDBLocally();
-      console.log("Cloud data successfully synced.");
+      console.log("Cloud sync successful");
       return true;
     }
   } catch (err) {
-    console.error("Cloud connection blocked or failed. Using local cache.", err);
+    console.warn("Backend read failed, falling back to local storage.", err);
     attendanceDB = JSON.parse(localStorage.getItem("IELTS_ATTENDANCE_DB") || "{}");
   }
   return false;
