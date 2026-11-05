@@ -548,9 +548,6 @@
   <script src="students.js"></script>
 
   <script>
-    // -------------------------------------------------------------
-    // REPLACE WITH YOUR COPIED APPS SCRIPT WEB APP URL
-    // -------------------------------------------------------------
     const GOOGLE_SCRIPT_API_URL = "https://script.google.com/macros/s/AKfycbxlXIi7L1r0htKxQgEomyAbOGf36jQxpU6ZUvupr83o9Qh7ECmb4qKNlzuPrLFwd08M/exec";
 
     let currentUser = null;
@@ -564,36 +561,46 @@
       localStorage.setItem("IELTS_ATTENDANCE_DB", JSON.stringify(attendanceDB));
     }
 
-async function syncDatabaseFromCloud() {
-  try {
-    const targetUrl = GOOGLE_SCRIPT_API_URL + (GOOGLE_SCRIPT_API_URL.includes("?") ? "&" : "?") + "t=" + Date.now();
-    console.log("Fetching latest database from:", targetUrl);
+    async function syncDatabaseFromCloud() {
+      try {
+        const targetUrl = GOOGLE_SCRIPT_API_URL + (GOOGLE_SCRIPT_API_URL.includes("?") ? "&" : "?") + "t=" + Date.now();
+        console.log("Fetching latest database from:", targetUrl);
 
-    const res = await fetch(targetUrl, {
-      method: "GET",
-      redirect: "follow"
-    });
+        const res = await fetch(targetUrl, {
+          method: "GET",
+          redirect: "follow"
+        });
 
-    if (!res.ok) {
-      throw new Error("HTTP error " + res.status);
+        if (!res.ok) {
+          throw new Error("HTTP error " + res.status);
+        }
+
+        const cloudDB = await res.json();
+        console.log("Live Cloud Data Received:", cloudDB);
+
+        if (cloudDB && typeof cloudDB === "object" && !cloudDB.error) {
+          attendanceDB = cloudDB;
+          saveAttendanceDBLocally();
+          return true;
+        } else {
+          console.error("Backend error payload:", cloudDB);
+        }
+      } catch (err) {
+        console.error("Failed to load live data from Google Sheets:", err);
+        attendanceDB = JSON.parse(localStorage.getItem("IELTS_ATTENDANCE_DB") || "{}");
+      }
+      return false;
     }
 
-    const cloudDB = await res.json();
-    console.log("Live Cloud Data Received:", cloudDB);
-
-    if (cloudDB && typeof cloudDB === "object" && !cloudDB.error) {
-      attendanceDB = cloudDB;
-      saveAttendanceDBLocally();
-      return true;
-    } else {
-      console.error("Backend error payload:", cloudDB);
+    function dispatchCloudMutation(payload) {
+      // Use text/plain to avoid preflight OPTIONS block in Apps Script
+      return fetch(GOOGLE_SCRIPT_API_URL, {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify(payload)
+      }).catch(err => console.error("Cloud mutation failed:", err));
     }
-  } catch (err) {
-    console.error("Failed to load live data from Google Sheets:", err);
-    attendanceDB = JSON.parse(localStorage.getItem("IELTS_ATTENDANCE_DB") || "{}");
-  }
-  return false;
-}
 
     function formatClassDate(isoDateStr) {
       if (!isoDateStr) return "";
@@ -802,36 +809,35 @@ async function syncDatabaseFromCloud() {
       document.getElementById("app-view").innerHTML = html;
     }
 
-async function renderAttendanceSheet(courseId) {
-  // Sync live records from Google Sheets whenever opening a course
-  await syncDatabaseFromCloud();
-
-  if (!activeCohort) {
-    for (const c of APP_DATA.cohorts) {
-      const found = c.courses.find(x => x.id === courseId);
-      if (found) {
-        activeCohort = c;
-        activeCourse = found;
-        break;
+    async function renderAttendanceSheet(courseId, skipCloudSync = false) {
+      if (!skipCloudSync) {
+        await syncDatabaseFromCloud();
       }
-    }
-  } else {
-    activeCourse = activeCohort.courses.find(c => c.id === courseId);
-  }
-  
-  updateBreadcrumbs();
 
-  if (!attendanceDB[courseId]) {
-    attendanceDB[courseId] = { sessions: [], records: {}, incidents: {} };
-  }
-  if (!attendanceDB[courseId].incidents) {
-    attendanceDB[courseId].incidents = {};
-  }
+      if (!activeCohort) {
+        for (const c of APP_DATA.cohorts) {
+          const found = c.courses.find(x => x.id === courseId);
+          if (found) {
+            activeCohort = c;
+            activeCourse = found;
+            break;
+          }
+        }
+      } else {
+        activeCourse = activeCohort.courses.find(c => c.id === courseId);
+      }
+      
+      updateBreadcrumbs();
 
-  const courseRecord = attendanceDB[courseId];
-  const canEdit = currentUser.role === "teacher" && currentUser.editableCourses.includes(courseId);
+      if (!attendanceDB[courseId]) {
+        attendanceDB[courseId] = { sessions: [], records: {}, incidents: {} };
+      }
+      if (!attendanceDB[courseId].incidents) {
+        attendanceDB[courseId].incidents = {};
+      }
 
-  // Remainder of your renderAttendanceSheet code stays exactly the same...
+      const courseRecord = attendanceDB[courseId];
+      const canEdit = currentUser.role === "teacher" && currentUser.editableCourses.includes(courseId);
 
       courseRecord.sessions.sort((a, b) => new Date(a) - new Date(b));
 
@@ -997,6 +1003,9 @@ async function renderAttendanceSheet(courseId) {
         return;
       }
 
+      if (!attendanceDB[targetCourseId]) {
+        attendanceDB[targetCourseId] = { sessions: [], records: {}, incidents: {} };
+      }
       const courseRecord = attendanceDB[targetCourseId];
 
       if (currentEditingDate) {
@@ -1063,7 +1072,9 @@ async function renderAttendanceSheet(courseId) {
       courseRecord.sessions.sort((a, b) => new Date(a) - new Date(b));
       saveAttendanceDBLocally();
       closeCalendarModal();
-      renderAttendanceSheet(targetCourseId);
+      
+      // Re-render immediately locally without waiting for cloud round-trip
+      renderAttendanceSheet(targetCourseId, true);
     }
 
     function deleteSession(courseId, sessionDate) {
@@ -1085,7 +1096,7 @@ async function renderAttendanceSheet(courseId) {
       });
 
       saveAttendanceDBLocally();
-      renderAttendanceSheet(courseId);
+      renderAttendanceSheet(courseId, true);
     }
 
     function updateStatus(courseId, studentId, sessionDate, newStatus) {
@@ -1103,7 +1114,7 @@ async function renderAttendanceSheet(courseId) {
       });
 
       saveAttendanceDBLocally();
-      renderAttendanceSheet(courseId);
+      renderAttendanceSheet(courseId, true);
     }
 
     function openIncidentModal(courseId) {
@@ -1167,7 +1178,7 @@ async function renderAttendanceSheet(courseId) {
 
       saveAttendanceDBLocally();
       closeIncidentModal();
-      renderAttendanceSheet(currentModalCourseId);
+      renderAttendanceSheet(currentModalCourseId, true);
     }
 
     function deleteIncidentRecord(courseId, studentId, incidentId) {
@@ -1184,7 +1195,7 @@ async function renderAttendanceSheet(courseId) {
 
         saveAttendanceDBLocally();
         openStudentReport(courseId, studentId);
-        renderAttendanceSheet(courseId);
+        renderAttendanceSheet(courseId, true);
       }
     }
 
