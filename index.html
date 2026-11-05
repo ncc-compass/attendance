@@ -411,7 +411,7 @@
       background-color: var(--ielts-red-soft);
     }
 
-    /* High-contrast status dropdowns */
+    /* Status Dropdowns: Unified, High-Contrast */
     .ws-select {
       background-color: var(--surface-white);
       color: var(--text-dark);
@@ -913,7 +913,7 @@
         Incorrect password or unselected account.
       </div>
 
-      <button class="login-submit-btn" id="login-submit-btn" onclick="handleLogin()">Login</button>
+      <button class="login-submit-btn" onclick="handleLogin()">Login</button>
 
       <div class="login-footer-credits">
         Developed by <span class="author-name">MD Sezadur Rahman</span>
@@ -1024,11 +1024,8 @@
   <script src="auth.js"></script>
   <script src="students.js"></script>
 
-  <!-- Application Engine with Live Google Apps Script Sync -->
+  <!-- Application Engine -->
   <script>
-    // Live Google Apps Script Deployment API
-    const GOOGLE_SCRIPT_API_URL = "https://script.google.com/macros/s/AKfycbxt6tQqfPIz7zmjuD-4Ic4uZurpJIp9ofQ-4nZ2xOuCjcC3w1xnsrNEYZYD-zSwZ3jA/exec";
-
     let currentUser = null;
     let activeCohort = null;
     let activeCourse = null;
@@ -1039,29 +1036,6 @@
 
     function saveAttendanceDB() {
       localStorage.setItem("IELTS_ATTENDANCE_DB", JSON.stringify(attendanceDB));
-    }
-
-    // --- Google Sheets Live Cloud Sync ---
-    async function syncDatabaseFromCloud() {
-      try {
-        const response = await fetch(GOOGLE_SCRIPT_API_URL);
-        const cloudDB = await response.json();
-        if (cloudDB && !cloudDB.error) {
-          attendanceDB = cloudDB;
-          saveAttendanceDB();
-        }
-      } catch (err) {
-        console.warn("Backend sync offline or unavailable. Loaded cached records from localStorage.", err);
-      }
-    }
-
-    function dispatchCloudMutation(payload) {
-      fetch(GOOGLE_SCRIPT_API_URL, {
-        method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      }).catch(err => console.error("Cloud mutation failed:", err));
     }
 
     function formatClassDate(isoDateStr) {
@@ -1140,42 +1114,73 @@
       document.getElementById("policy-modal").style.display = "none";
     }
 
-    // --- Authentication & Cloud Bootstrapping ---
-    async function handleLogin() {
-      const selectedUsername = document.getElementById("login-account-select").value;
-      const enteredPassword = document.getElementById("login-password").value.trim();
-      const errEl = document.getElementById("login-error");
-      const submitBtn = document.getElementById("login-submit-btn");
-
-      if (!selectedUsername) {
-        errEl.innerText = "Please choose an account from the menu.";
-        errEl.style.display = "block";
-        return;
-      }
-
-      const user = USERS.find(x => x.username === selectedUsername && x.password === enteredPassword);
-
-      if (user) {
-        currentUser = user;
-        submitBtn.innerText = "Syncing...";
-        submitBtn.disabled = true;
-
-        // Sync with Google Sheets backend
-        await syncDatabaseFromCloud();
-
-        submitBtn.innerText = "Login";
-        submitBtn.disabled = false;
-
-        document.getElementById("login-modal").style.display = "none";
-        document.getElementById("user-meta-bar").style.display = "flex";
-        
-        document.getElementById("display-user-name").innerText = user.name;
-        renderCohortsView();
-      } else {
-        errEl.innerText = "Incorrect password for the selected account.";
-        errEl.style.display = "block";
-      }
+// Ensure syncDatabaseFromCloud properly fetches and parses the sheet data
+async function syncDatabaseFromCloud() {
+  try {
+    // Adding a timestamp parameter prevents browsers from returning stale cached GET requests
+    const cacheBuster = `?t=${new Date().getTime()}`;
+    const res = await fetch(GOOGLE_SCRIPT_API_URL + cacheBuster);
+    
+    if (!res.ok) {
+      throw new Error(`HTTP error! status: ${res.status}`);
     }
+    
+    const cloudDB = await res.json();
+    
+    if (cloudDB && typeof cloudDB === "object" && !cloudDB.error) {
+      attendanceDB = cloudDB;
+      localStorage.setItem("IELTS_ATTENDANCE_DB", JSON.stringify(attendanceDB));
+      return true;
+    } else {
+      console.error("Backend error response:", cloudDB);
+      return false;
+    }
+  } catch (err) {
+    console.warn("Could not sync from Google Sheets, using local cache if available:", err);
+    return false;
+  }
+}
+
+// Update handleLogin to await the data sync before rendering
+async function handleLogin() {
+  const selectedUsername = document.getElementById("login-account-select").value;
+  const enteredPassword = document.getElementById("login-password").value.trim();
+  const errEl = document.getElementById("login-error");
+  const loginBtn = document.querySelector(".login-submit-btn");
+
+  if (!selectedUsername) {
+    errEl.innerText = "Please choose an account from the menu.";
+    errEl.style.display = "block";
+    return;
+  }
+
+  const user = USERS.find(x => x.username === selectedUsername && x.password === enteredPassword);
+
+  if (user) {
+    currentUser = user;
+    errEl.style.display = "none";
+    
+    // Provide visual feedback while fetching sheet data
+    const originalBtnText = loginBtn.innerText;
+    loginBtn.innerText = "Syncing with cloud...";
+    loginBtn.disabled = true;
+
+    // Pull database from Google Sheets
+    await syncDatabaseFromCloud();
+
+    loginBtn.innerText = originalBtnText;
+    loginBtn.disabled = false;
+
+    document.getElementById("login-modal").style.display = "none";
+    document.getElementById("user-meta-bar").style.display = "flex";
+    document.getElementById("display-user-name").innerText = user.name;
+    
+    renderCohortsView();
+  } else {
+    errEl.innerText = "Incorrect password for the selected account.";
+    errEl.style.display = "block";
+  }
+}
 
     function handleLogout() {
       currentUser = null;
@@ -1260,7 +1265,7 @@
 
       activeCohort.courses.forEach(crs => {
         const canEdit = currentUser.role === "teacher" && currentUser.editableCourses.includes(crs.id);
-        const accessLabel = canEdit ? "Full Roster Access" : "Read-Only Archive";
+        const accessLabel = canEdit ? "Full Editing Access" : "Read-Only Access";
         const badgeClass = canEdit ? "ws-chip-green" : "ws-chip-blue";
 
         html += `
@@ -1363,6 +1368,7 @@
         }
         const sRecords = courseRecord.records[student.id];
 
+        // Compute percentage only across sessions where an attendance status has actually been selected
         let attendedCount = 0;
         let markedSessionsCount = 0;
 
@@ -1399,7 +1405,7 @@
                       <option value="Present" ${currentVal === 'Present' ? 'selected' : ''}>Present</option>
                       <option value="Absent" ${currentVal === 'Absent' ? 'selected' : ''}>Absent</option>
                       <option value="Late" ${currentVal === 'Late' ? 'selected' : ''}>Late</option>
-                      <option value="Joined online" ${currentVal === 'Joined online' ? 'selected' : ''}>Joined Online</option>
+                      <option value="Joined online" ${currentVal === 'Joined online' ? 'selected' : ''}>Joined online</option>
                       <option value="Absent Informed" ${currentVal === 'Absent Informed' ? 'selected' : ''}>Absent Informed</option>
                     </select>
                   </td>
@@ -1494,14 +1500,6 @@
             delete courseRecord.records[stId][currentEditingDate];
           }
         });
-
-        // Dispatch background edit mutation to Google Sheets
-        dispatchCloudMutation({
-          action: "EDIT_SESSION",
-          courseId: targetCourseId,
-          oldDate: currentEditingDate,
-          newDate: selectedDate
-        });
       } else {
         if (courseRecord.sessions.includes(selectedDate)) {
           errEl.innerText = `A class session already exists for ${formatClassDate(selectedDate)}.`;
@@ -1524,18 +1522,12 @@
           }
         }
 
+        // Initialize newly created session as unselected ("Choose one")
         studentList.forEach(st => {
           if (!courseRecord.records[st.id]) courseRecord.records[st.id] = {};
           if (courseRecord.records[st.id][selectedDate] === undefined) {
             courseRecord.records[st.id][selectedDate] = "";
           }
-        });
-
-        // Dispatch background add mutation to Google Sheets
-        dispatchCloudMutation({
-          action: "ADD_SESSION",
-          courseId: targetCourseId,
-          sessionDate: selectedDate
         });
       }
 
@@ -1559,14 +1551,6 @@
       });
 
       saveAttendanceDB();
-
-      // Dispatch background delete mutation to Google Sheets
-      dispatchCloudMutation({
-        action: "DELETE_SESSION",
-        courseId: courseId,
-        sessionDate: sessionDate
-      });
-
       renderAttendanceSheet(courseId);
     }
 
@@ -1576,16 +1560,6 @@
       }
       attendanceDB[courseId].records[studentId][sessionDate] = newStatus;
       saveAttendanceDB();
-
-      // Dispatch background cell update mutation to Google Sheets
-      dispatchCloudMutation({
-        action: "UPDATE_STATUS",
-        courseId: courseId,
-        studentId: studentId,
-        sessionDate: sessionDate,
-        status: newStatus
-      });
-
       renderAttendanceSheet(courseId);
     }
 
@@ -1631,26 +1605,16 @@
       if (!courseRecord.incidents) courseRecord.incidents = {};
       if (!courseRecord.incidents[studentId]) courseRecord.incidents[studentId] = [];
 
-      const newIncident = {
+      courseRecord.incidents[studentId].push({
         id: "INC-" + Date.now(),
         date: date,
         category: category,
         notes: notes,
         recordedBy: currentUser ? currentUser.name : "Instructor",
         timestamp: new Date().toISOString()
-      };
-
-      courseRecord.incidents[studentId].push(newIncident);
-      saveAttendanceDB();
-
-      // Dispatch background incident add mutation to Google Sheets
-      dispatchCloudMutation({
-        action: "ADD_INCIDENT",
-        courseId: currentModalCourseId,
-        studentId: studentId,
-        incident: newIncident
       });
 
+      saveAttendanceDB();
       closeIncidentModal();
       renderAttendanceSheet(currentModalCourseId);
     }
@@ -1662,13 +1626,6 @@
       if (courseRecord && courseRecord.incidents && courseRecord.incidents[studentId]) {
         courseRecord.incidents[studentId] = courseRecord.incidents[studentId].filter(x => x.id !== incidentId);
         saveAttendanceDB();
-
-        // Dispatch background incident delete mutation to Google Sheets
-        dispatchCloudMutation({
-          action: "DELETE_INCIDENT",
-          incidentId: incidentId
-        });
-
         openStudentReport(courseId, studentId);
         renderAttendanceSheet(courseId);
       }
