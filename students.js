@@ -19,8 +19,8 @@
 // 1. COHORT MAPPINGS
 // ==========================================
 const COHORTS = [
-  { id: "autumn-2026", name: "Autumn 2026 Cohort" },
-  { id: "winter-2026", name: "Winter 2026 Cohort" }
+  { id: "autumn-2026", name: "L3 Autumn 2026" },
+  { id: "winter-2026", name: "L3 Winter 2026" }
 ];
 
 // ==========================================
