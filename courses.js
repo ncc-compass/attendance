@@ -1,0 +1,73 @@
+const COURSE_CATALOG = {
+  // ---------------------------------------------------
+  // Core Foundation / English Courses
+  // ---------------------------------------------------
+  "c_eap": { 
+    name: "L3 English for Academic Purposes (EAP)", 
+    instructor: "MD Sezadur Rahman" 
+  },
+  "c_dels": { 
+    name: "L3 Developing English Language Skills (DELS)", 
+    instructor: "Ramisha Tahsin" 
+  },
+  "c_rss": { 
+    name: "L3 Research and Study Skills (RSS)", 
+    instructor: "Ramisha Tahsin" 
+  },
+  "c_mfus": { 
+    name: "L3 Mathematics For University Studies (MFUS)", 
+    instructor: "Halima Haque" 
+  },
+
+  // ---------------------------------------------------
+  // IT / Computing Pathway
+  // ---------------------------------------------------
+  "c_itcs": { 
+    name: "L3 Introduction to Computer Science (ITCS)", 
+    instructor: "MD Sezadur Rahman" 
+  },
+  "c_dw": { 
+    name: "L3 Digital World (DW)", 
+    instructor: "MD Sezadur Rahman" 
+  },
+  "c_itpwp": { 
+    name: "L3 Introduction to Programming with Python (ITPwP)", 
+    instructor: "MD Sezadur Rahman" 
+  },
+
+  // ---------------------------------------------------
+  // Science Pathway
+  // ---------------------------------------------------
+  "c_chem": {
+    name: "L3 Chemistry for University Studies",
+    instructor: "Ramisha Tahsin"
+  },
+  "c_bio": {
+    name: "L3 Biology for University Studies",
+    instructor: "Ramisha Tahsin"
+  },
+  "c_fmus": {
+    name: "L3 Further Mathematics for University Study",
+    instructor: "Halima Haque"
+  },
+  "c_phys": {
+    name: "L3 Physics for University Study",
+    instructor: "Halima Haque"
+  },
+
+  // ---------------------------------------------------
+  // Business Pathway
+  // ---------------------------------------------------
+  "c_acc": {
+    name: "L3 Introductory Accounting",
+    instructor: "Fahim Uz Zaman"
+  },
+  "c_eco": {
+    name: "L3 Introductory Economics",
+    instructor: "Fahim Uz Zaman"
+  },
+  "c_ib": {
+    name: "L3 International Business",
+    instructor: "Fahim Uz Zaman"
+  }
+};
