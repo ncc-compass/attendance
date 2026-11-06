@@ -545,11 +545,10 @@
   <script src="auth.js"></script>
   <script src="students.js"></script>
 
-  <script>
+ // -------------------------------------------------------------
+    // REPLACE WITH YOUR COPIED RENDER.COM URL
     // -------------------------------------------------------------
-    // REPLACE WITH YOUR COPIED APPS SCRIPT WEB APP URL
-    // -------------------------------------------------------------
-    const GOOGLE_SCRIPT_API_URL = "https://script.google.com/macros/s/AKfycbxlXIi7L1r0htKxQgEomyAbOGf36jQxpU6ZUvupr83o9Qh7ECmb4qKNlzuPrLFwd08M/exec";
+    const NODE_API_URL = "https://compass-backend-yq9g.onrender.com";
 
     let currentUser = null;
     let activeCohort = null;
@@ -564,27 +563,18 @@
 
     async function syncDatabaseFromCloud() {
       try {
-        const cacheBuster = "cb=" + new Date().getTime();
-        const targetUrl = GOOGLE_SCRIPT_API_URL + (GOOGLE_SCRIPT_API_URL.includes("?") ? "&" : "?") + cacheBuster;
+        console.log("Fetching live data from MongoDB Atlas via Render...");
+        const res = await fetch(`${NODE_API_URL}/api/db`);
 
-        const res = await fetch(targetUrl);
-        const textData = await res.text();
+        if (!res.ok) throw new Error("HTTP error " + res.status);
 
-        // 1. Detect if Google is blocking access and returning an HTML login page instead of JSON
-        if (textData.trim().startsWith("<") || textData.includes("<html")) {
-          alert("SECURITY BLOCK: Google Apps Script is asking for a login. To fix this: Go to Apps Script -> Deploy -> Manage Deployments -> Edit -> set 'Who has access' to 'Anyone' -> Deploy.");
-          throw new Error("Google Apps Script returned HTML (Login page) instead of JSON data.");
-        }
-
-        const cloudDB = JSON.parse(textData);
+        const cloudDB = await res.json();
 
         if (cloudDB && typeof cloudDB === "object" && !cloudDB.error) {
           attendanceDB = cloudDB;
           saveAttendanceDBLocally();
           console.log("Cloud sync successful");
           return true;
-        } else {
-          console.error("Backend error payload:", cloudDB);
         }
       } catch (err) {
         console.warn("Backend read failed, falling back to local storage.", err);
@@ -593,12 +583,17 @@
       return false;
     }
 
-    function dispatchCloudMutation(payload) {
-      return fetch(GOOGLE_SCRIPT_API_URL, {
+    // New streamlined mutation function: saves the exact state of the course to MongoDB
+    function dispatchCloudMutation(courseId) {
+      if (!attendanceDB[courseId]) return;
+      
+      fetch(`${NODE_API_URL}/api/update`, {
         method: "POST",
-        mode: "no-cors",
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload)
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courseId: courseId,
+          courseData: attendanceDB[courseId]
+        })
       }).catch(err => console.error("Cloud mutation failed:", err));
     }
 
@@ -650,19 +645,15 @@
           <p><strong>1. Data Governance & Purpose</strong><br>
           Compass Attendance System collects and manages student candidate attendance, performance ratios, and evaluative incident notes solely for official academic tracking and institutional accreditation compliance.</p><br>
           <p><strong>2. Access Control</strong><br>
-          User permissions are role-restricted. Instructors may view and record data for assigned courses only, while administrative accounts maintain oversight and report auditing capabilities.</p><br>
-          <p><strong>3. Storage & Integrity</strong><br>
-          Rosters and records are retained in compliance with academic moderation protocols. Unauthorized alteration or dissemination of student transcripts is strictly prohibited.</p>
+          User permissions are role-restricted. Instructors may view and record data for assigned courses only.</p>
         `;
       } else {
         title.innerText = "Terms & Conditions";
         body.innerHTML = `
           <p><strong>1. Authorized Academic Use</strong><br>
-          Access to this workstation environment is restricted to verified educational personnel. Users are responsible for safeguarding login credentials and ensuring candidate records remain confidential.</p><br>
+          Access to this workstation environment is restricted to verified educational personnel.</p><br>
           <p><strong>2. Accuracy of Evaluator Records</strong><br>
-          Instructors must accurately document attendance categories and ensure incident notes reflect objective, factual observations.</p><br>
-          <p><strong>3. System Version</strong><br>
-          Compass Attendance System Version 2.2.1. Operational guidelines governed by institutional faculty standards.</p>
+          Instructors must accurately document attendance categories.</p>
         `;
       }
       modal.style.display = "flex";
@@ -689,7 +680,7 @@
       if (user) {
         currentUser = user;
         errEl.style.display = "none";
-        submitBtn.innerText = "Syncing...";
+        submitBtn.innerText = "Connecting to Atlas...";
         submitBtn.disabled = true;
 
         await syncDatabaseFromCloud();
@@ -809,7 +800,11 @@
       document.getElementById("app-view").innerHTML = html;
     }
 
-    function renderAttendanceSheet(courseId) {
+    async function renderAttendanceSheet(courseId, skipCloudSync = false) {
+      if (!skipCloudSync) {
+        await syncDatabaseFromCloud();
+      }
+
       if (!activeCohort) {
         for (const c of APP_DATA.cohorts) {
           const found = c.courses.find(x => x.id === courseId);
@@ -1022,13 +1017,6 @@
             delete courseRecord.records[stId][currentEditingDate];
           }
         });
-
-        dispatchCloudMutation({
-          action: "EDIT_SESSION",
-          courseId: targetCourseId,
-          oldDate: currentEditingDate,
-          newDate: selectedDate
-        });
       } else {
         if (courseRecord.sessions.includes(selectedDate)) {
           errEl.innerText = `A class session already exists for ${formatClassDate(selectedDate)}.`;
@@ -1057,18 +1045,14 @@
             courseRecord.records[st.id][selectedDate] = "";
           }
         });
-
-        dispatchCloudMutation({
-          action: "ADD_SESSION",
-          courseId: targetCourseId,
-          sessionDate: selectedDate
-        });
       }
 
       courseRecord.sessions.sort((a, b) => new Date(a) - new Date(b));
+      
       saveAttendanceDBLocally();
+      dispatchCloudMutation(targetCourseId);
       closeCalendarModal();
-      renderAttendanceSheet(targetCourseId);
+      renderAttendanceSheet(targetCourseId, true);
     }
 
     function deleteSession(courseId, sessionDate) {
@@ -1083,14 +1067,9 @@
         delete courseRecord.records[stId][sessionDate];
       });
 
-      dispatchCloudMutation({
-        action: "DELETE_SESSION",
-        courseId: courseId,
-        sessionDate: sessionDate
-      });
-
       saveAttendanceDBLocally();
-      renderAttendanceSheet(courseId);
+      dispatchCloudMutation(courseId);
+      renderAttendanceSheet(courseId, true);
     }
 
     function updateStatus(courseId, studentId, sessionDate, newStatus) {
@@ -1099,16 +1078,9 @@
       }
       attendanceDB[courseId].records[studentId][sessionDate] = newStatus;
 
-      dispatchCloudMutation({
-        action: "UPDATE_STATUS",
-        courseId: courseId,
-        studentId: studentId,
-        sessionDate: sessionDate,
-        status: newStatus
-      });
-
       saveAttendanceDBLocally();
-      renderAttendanceSheet(courseId);
+      dispatchCloudMutation(courseId);
+      renderAttendanceSheet(courseId, true);
     }
 
     function openIncidentModal(courseId) {
@@ -1152,27 +1124,19 @@
       if (!courseRecord.incidents) courseRecord.incidents = {};
       if (!courseRecord.incidents[studentId]) courseRecord.incidents[studentId] = [];
 
-      const newInc = {
+      courseRecord.incidents[studentId].push({
         id: "INC-" + Date.now(),
         date: date,
         category: category,
         notes: notes,
         recordedBy: currentUser ? currentUser.name : "Instructor",
         timestamp: new Date().toISOString()
-      };
-
-      courseRecord.incidents[studentId].push(newInc);
-
-      dispatchCloudMutation({
-        action: "ADD_INCIDENT",
-        courseId: currentModalCourseId,
-        studentId: studentId,
-        incident: newInc
       });
 
       saveAttendanceDBLocally();
+      dispatchCloudMutation(currentModalCourseId);
       closeIncidentModal();
-      renderAttendanceSheet(currentModalCourseId);
+      renderAttendanceSheet(currentModalCourseId, true);
     }
 
     function deleteIncidentRecord(courseId, studentId, incidentId) {
@@ -1182,14 +1146,10 @@
       if (courseRecord && courseRecord.incidents && courseRecord.incidents[studentId]) {
         courseRecord.incidents[studentId] = courseRecord.incidents[studentId].filter(x => x.id !== incidentId);
 
-        dispatchCloudMutation({
-          action: "DELETE_INCIDENT",
-          incidentId: incidentId
-        });
-
         saveAttendanceDBLocally();
+        dispatchCloudMutation(courseId);
         openStudentReport(courseId, studentId);
-        renderAttendanceSheet(courseId);
+        renderAttendanceSheet(courseId, true);
       }
     }
 
