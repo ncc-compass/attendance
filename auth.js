@@ -24,7 +24,7 @@ const USERS = [
     username: "fahim",
     password: "fahim123",
     name: "Fahim Uz Zaman",
-    role: "admin",
+    role: "teacher",
     editableCourses: ["c_acc" , "c_eco" , "c_ib"]
   },
   {
