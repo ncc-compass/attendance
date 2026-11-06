@@ -11,7 +11,7 @@
 const USERS = [
   {
     username: "admin",
-    password: "compassadmin123",
+    password: "admin123",
     name: "System Administrator",
     role: "admin",
     editableCourses: []
@@ -39,7 +39,7 @@ const USERS = [
   },
   {
     username: "halima",
-    password: "halimapassword",
+    password: "halima123",
     name: "Halima Haque",
     role: "teacher",
     editableCourses: ["c_mfus", "c_fmus" , "c_phys"]
