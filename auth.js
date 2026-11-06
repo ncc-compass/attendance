@@ -9,7 +9,7 @@ const USERS = [
   {
     username: "admin",
     password: "",
-    name: "System Administrator",
+    name: "Admin",
     role: "admin",
     editableCourses: []
   },
