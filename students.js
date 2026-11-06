@@ -1,19 +1,13 @@
 // course tags
+// course tags
 //  "c_eap"
 //  "c_dels" 
 //  "c_rss"
 //  "c_mfus"
-//  "c_itcs"
-//  "c_dw"
-//  "c_itpwp"
-//  "c_chem"
-//  "c_bio"
-//  "c_fmus"
-//  "c_phys"
-//  "c_acc"
-//  "c_eco"
-//  "c_ib"
-
+//  "c_itcs" , "c_dw" , "c_itpwp"
+//  "c_chem" ,  "c_bio"
+//  "c_fmus" , "c_phys"
+//  "c_acc" , "c_eco" , "c_ib"
 
 // ==========================================
 // 1. COHORT MAPPINGS
@@ -30,20 +24,16 @@ const STUDENT_DIRECTORY = [
   // ----------------------------------------
   // AUTUMN 2026
   // ----------------------------------------
-  { id: "226462", name: "Adiyat Mustafiz Zarif", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "226463", name: "Arpon Joseph Rozario", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "226464", name: "Loreta Almida", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "226465", name: "Manha Akbar Nidhi", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "226467", name: "MD Rakib Chowdhury", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "226468", name: "Nabila Nasir", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "226469", name: "Nashwa Shabbir", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "226470", name: "Pareeza Nawar", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "226471", name: "Sanjana Islam Saba", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "226473", name: "Tanzib Osman", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "222040", name: "Mashrura Zarin Tasnim", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "222042", name: "Ridni Anha", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  
-  // Shahriyar taking the IT Pathway
+  { id: "226462", name: "Adiyat Mustafiz Zarif", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus","c_fmus" , "c_phys"] },
+  { id: "226463", name: "Arpon Joseph Rozario", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus","c_chem" ,  "c_bio"] },
+  { id: "226464", name: "Loreta Almida", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus","c_chem" ,  "c_bio"] },
+  { id: "226465", name: "Manha Akbar Nidhi", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_acc" , "c_ib"] },
+  { id: "226467", name: "MD Rakib Chowdhury", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_acc" , "c_ib"] },
+  { id: "226468", name: "Nabila Nasir", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_acc" , "c_ib"] },
+  { id: "226469", name: "Nashwa Shabbir", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_acc" , "c_ib"] },
+  { id: "226470", name: "Pareeza Nawar", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus","c_eco" , "c_ib"] },
+  { id: "226471", name: "Sanjana Islam Saba", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus","c_chem" ,  "c_bio"] },
+  { id: "226473", name: "Tanzib Osman", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_acc" , "c_ib"] },
   { id: "226472", name: "Shahriyar Ahmed Plabon", cohort: "autumn-2026", enrolled: ["c_eap", "c_itcs", "c_dw", "c_itpwp"] },
 
   // ----------------------------------------
