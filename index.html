@@ -1,10 +1,15 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Compass Attendance System 2.2.1</title>
+  
+  <!-- DATA FILES IN STRICT ORDER -->
+  <script src="auth.js"></script>
+  <script src="courses.js"></script>
+  <script src="students.js"></script>
+
   <style>
     :root {
       --ielts-red: #d32f2f;
@@ -23,7 +28,6 @@
       --text-light: #94a3b8;
       --status-blue-bg: #eff6ff;
       --status-blue-text: #1d4ed8;
-      --status-blue-border: #bfdbfe;
       --status-green-bg: #ecfdf5;
       --status-green-text: #047857;
       --status-green-border: #a7f3d0;
@@ -545,12 +549,6 @@
     <div id="app-view"></div>
   </main>
 
-  <script src="auth.js"></script>
-  <script src="courses.js"></script>
-  <script src="students.js"></script>
-
-  
-
   <script>
     // -------------------------------------------------------------
     // LIVE RENDER / MONGODB ATLAS API URL
@@ -564,7 +562,6 @@
     let currentEditingDate = null;
     let attendanceDB = {};
 
-    // --- State Persistence Helpers ---
     function saveAttendanceDBLocally() {
       localStorage.setItem("IELTS_ATTENDANCE_DB", JSON.stringify(attendanceDB));
     }
@@ -627,7 +624,6 @@
       }
     }
 
-    // --- Auto-Login & State Restoration on Page Load ---
     window.addEventListener("DOMContentLoaded", async () => {
       initializeAccountDropdown();
 
@@ -725,7 +721,6 @@
       if (user) {
         currentUser = user;
         
-        // Save the authenticated user to local storage
         localStorage.setItem("COMPASS_CURRENT_USER", JSON.stringify(currentUser));
         
         errEl.style.display = "none";
@@ -748,7 +743,6 @@
     }
 
     function handleLogout() {
-      // Clear persistence layers
       localStorage.removeItem("COMPASS_CURRENT_USER");
       localStorage.removeItem("COMPASS_VIEW_STATE");
       
@@ -783,31 +777,43 @@
     }
 
     function renderCohortsView() {
-      saveViewState("cohorts"); // Track navigation
+      saveViewState("cohorts"); 
       activeCohort = null;
       activeCourse = null;
       updateBreadcrumbs();
+
+      let gridHtml = '';
+      let visibleCohortsCount = 0;
+
+      APP_DATA.cohorts.forEach(c => {
+        const visibleCourses = c.courses.filter(crs => 
+          currentUser.role === "admin" || (currentUser.editableCourses && currentUser.editableCourses.includes(crs.id))
+        );
+
+        if (visibleCourses.length > 0) {
+          visibleCohortsCount++;
+          gridHtml += `
+            <div class="ws-card" onclick="renderCoursesView('${c.id}')">
+              <h3>${c.name}</h3>
+              <p>${visibleCourses.length} Assigned Course Rosters</p>
+            </div>
+          `;
+        }
+      });
+
+      if (visibleCohortsCount === 0) {
+        gridHtml = `<div style="padding: 20px; color: var(--text-muted);">No courses assigned to your account in any active cohorts.</div>`;
+      }
 
       let html = `
         <div class="ws-panel">
           <div class="ws-panel-header">
             <h2 class="ws-panel-title">Active Academic Cohorts</h2>
-            <span style="font-size: 0.8rem; color: var(--text-muted);">${APP_DATA.cohorts.length} Active Records</span>
+            <span style="font-size: 0.8rem; color: var(--text-muted);">${visibleCohortsCount} Active Records</span>
           </div>
           <div class="ws-panel-body">
             <div class="ws-grid">
-      `;
-
-      APP_DATA.cohorts.forEach(c => {
-        html += `
-          <div class="ws-card" onclick="renderCoursesView('${c.id}')">
-            <h3>${c.name}</h3>
-            <p>${c.courses.length} Assigned Course Rosters</p>
-          </div>
-        `;
-      });
-
-      html += `
+              ${gridHtml}
             </div>
           </div>
         </div>
@@ -816,27 +822,22 @@
     }
 
     function renderCoursesView(cohortId) {
-      saveViewState("courses", cohortId); // Track navigation
+      saveViewState("courses", cohortId); 
       activeCohort = APP_DATA.cohorts.find(c => c.id === cohortId);
       activeCourse = null;
       updateBreadcrumbs();
 
-      let html = `
-        <div class="ws-panel">
-          <div class="ws-panel-header">
-            <h2 class="ws-panel-title">${activeCohort.name} - Course Registries</h2>
-            <button class="ws-btn ws-btn-outline ws-no-print" onclick="renderCohortsView()">← Back to Cohorts</button>
-          </div>
-          <div class="ws-panel-body">
-            <div class="ws-grid">
-      `;
+      const visibleCourses = activeCohort.courses.filter(crs => 
+        currentUser.role === "admin" || (currentUser.editableCourses && currentUser.editableCourses.includes(crs.id))
+      );
 
-      activeCohort.courses.forEach(crs => {
-        const canEdit = currentUser.role === "teacher" && currentUser.editableCourses.includes(crs.id);
+      let gridHtml = '';
+      visibleCourses.forEach(crs => {
+        const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(crs.id);
         const accessLabel = canEdit ? "Full Roster Access" : "Read-Only Archive";
         const badgeClass = canEdit ? "ws-chip-green" : "ws-chip-blue";
 
-        html += `
+        gridHtml += `
           <div class="ws-card" onclick="renderAttendanceSheet('${crs.id}')">
             <h3>${crs.name}</h3>
             <p>${crs.students.length} Enrolled Candidates</p>
@@ -847,7 +848,15 @@
         `;
       });
 
-      html += `
+      let html = `
+        <div class="ws-panel">
+          <div class="ws-panel-header">
+            <h2 class="ws-panel-title">${activeCohort.name} - Course Registries</h2>
+            <button class="ws-btn ws-btn-outline ws-no-print" onclick="renderCohortsView()">← Back to Cohorts</button>
+          </div>
+          <div class="ws-panel-body">
+            <div class="ws-grid">
+              ${gridHtml}
             </div>
           </div>
         </div>
@@ -856,7 +865,7 @@
     }
 
     async function renderAttendanceSheet(courseId, skipCloudSync = false) {
-      saveViewState("sheet", courseId); // Track navigation
+      saveViewState("sheet", courseId); 
       
       if (!skipCloudSync) {
         await syncDatabaseFromCloud();
@@ -885,7 +894,7 @@
       }
 
       const courseRecord = attendanceDB[courseId];
-      const canEdit = currentUser.role === "teacher" && currentUser.editableCourses.includes(courseId);
+      const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(courseId);
 
       courseRecord.sessions.sort((a, b) => new Date(a) - new Date(b));
 
@@ -1254,7 +1263,7 @@
       if (rate < 50) rateColor = "var(--status-red-text)";
       else if (rate < 75) rateColor = "var(--status-amber-text)";
 
-      const canEdit = currentUser.role === "teacher" && currentUser.editableCourses.includes(courseId);
+      const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(courseId);
 
       let reportHTML = `
         <div class="dossier-card">
