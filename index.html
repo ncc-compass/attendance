@@ -560,8 +560,13 @@
     let currentEditingDate = null;
     let attendanceDB = {};
 
+    // --- State Persistence Helpers ---
     function saveAttendanceDBLocally() {
       localStorage.setItem("IELTS_ATTENDANCE_DB", JSON.stringify(attendanceDB));
+    }
+
+    function saveViewState(view, id = null) {
+      localStorage.setItem("COMPASS_VIEW_STATE", JSON.stringify({ view: view, id: id }));
     }
 
     async function syncDatabaseFromCloud() {
@@ -586,7 +591,6 @@
       return false;
     }
 
-    // Sends the exact state of the course to MongoDB
     function dispatchCloudMutation(courseId) {
       if (!attendanceDB[courseId]) return;
       
@@ -619,7 +623,41 @@
       }
     }
 
-    window.addEventListener("DOMContentLoaded", initializeAccountDropdown);
+    // --- Auto-Login & State Restoration on Page Load ---
+    window.addEventListener("DOMContentLoaded", async () => {
+      initializeAccountDropdown();
+
+      const savedUserStr = localStorage.getItem("COMPASS_CURRENT_USER");
+      if (savedUserStr) {
+        try {
+          currentUser = JSON.parse(savedUserStr);
+          document.getElementById("login-modal").style.display = "none";
+          document.getElementById("user-meta-bar").style.display = "flex";
+          document.getElementById("display-user-name").innerText = currentUser.name;
+
+          document.getElementById("app-view").innerHTML = '<div style="padding: 40px; text-align: center; color: var(--text-muted); font-weight: 600;">Restoring session and syncing data...</div>';
+
+          await syncDatabaseFromCloud();
+
+          const savedStateStr = localStorage.getItem("COMPASS_VIEW_STATE");
+          if (savedStateStr) {
+            const savedState = JSON.parse(savedStateStr);
+            if (savedState.view === "sheet" && savedState.id) {
+              renderAttendanceSheet(savedState.id, true);
+            } else if (savedState.view === "courses" && savedState.id) {
+              renderCoursesView(savedState.id);
+            } else {
+              renderCohortsView();
+            }
+          } else {
+            renderCohortsView();
+          }
+        } catch (err) {
+          console.error("Failed to restore session", err);
+          handleLogout();
+        }
+      }
+    });
 
     function togglePasswordVisibility() {
       const pwdInput = document.getElementById("login-password");
@@ -648,19 +686,15 @@
           <p><strong>1. Data Governance & Purpose</strong><br>
           Compass Attendance System collects and manages student candidate attendance, performance ratios, and evaluative incident notes solely for official academic tracking and institutional accreditation compliance.</p><br>
           <p><strong>2. Access Control</strong><br>
-          User permissions are role-restricted. Instructors may view and record data for assigned courses only, while administrative accounts maintain oversight and report auditing capabilities.</p><br>
-          <p><strong>3. Storage & Integrity</strong><br>
-          Rosters and records are retained in compliance with academic moderation protocols. Unauthorized alteration or dissemination of student transcripts is strictly prohibited.</p>
+          User permissions are role-restricted. Instructors may view and record data for assigned courses only.</p>
         `;
       } else {
         title.innerText = "Terms & Conditions";
         body.innerHTML = `
           <p><strong>1. Authorized Academic Use</strong><br>
-          Access to this workstation environment is restricted to verified educational personnel. Users are responsible for safeguarding login credentials and ensuring candidate records remain confidential.</p><br>
+          Access to this workstation environment is restricted to verified educational personnel.</p><br>
           <p><strong>2. Accuracy of Evaluator Records</strong><br>
-          Instructors must accurately document attendance categories and ensure incident notes reflect objective, factual observations.</p><br>
-          <p><strong>3. System Version</strong><br>
-          Compass Attendance System Version 2.2.1. Operational guidelines governed by institutional faculty standards.</p>
+          Instructors must accurately document attendance categories.</p>
         `;
       }
       modal.style.display = "flex";
@@ -686,6 +720,10 @@
 
       if (user) {
         currentUser = user;
+        
+        // Save the authenticated user to local storage
+        localStorage.setItem("COMPASS_CURRENT_USER", JSON.stringify(currentUser));
+        
         errEl.style.display = "none";
         submitBtn.innerText = "Connecting to Atlas...";
         submitBtn.disabled = true;
@@ -706,6 +744,10 @@
     }
 
     function handleLogout() {
+      // Clear persistence layers
+      localStorage.removeItem("COMPASS_CURRENT_USER");
+      localStorage.removeItem("COMPASS_VIEW_STATE");
+      
       currentUser = null;
       activeCohort = null;
       activeCourse = null;
@@ -737,6 +779,7 @@
     }
 
     function renderCohortsView() {
+      saveViewState("cohorts"); // Track navigation
       activeCohort = null;
       activeCourse = null;
       updateBreadcrumbs();
@@ -769,6 +812,7 @@
     }
 
     function renderCoursesView(cohortId) {
+      saveViewState("courses", cohortId); // Track navigation
       activeCohort = APP_DATA.cohorts.find(c => c.id === cohortId);
       activeCourse = null;
       updateBreadcrumbs();
@@ -808,6 +852,8 @@
     }
 
     async function renderAttendanceSheet(courseId, skipCloudSync = false) {
+      saveViewState("sheet", courseId); // Track navigation
+      
       if (!skipCloudSync) {
         await syncDatabaseFromCloud();
       }
@@ -1024,7 +1070,6 @@
             delete courseRecord.records[stId][currentEditingDate];
           }
         });
-
       } else {
         if (courseRecord.sessions.includes(selectedDate)) {
           errEl.innerText = `A class session already exists for ${formatClassDate(selectedDate)}.`;
