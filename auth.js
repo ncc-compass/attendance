@@ -1,8 +1,5 @@
 // course tags
-//  "c_eap"
-//  "c_dels" 
-//  "c_rss"
-//  "c_mfus"
+//  "c_eap",  "c_dels" , "c_rss", "c_mfus"
 //  "c_itcs" , "c_dw" , "c_itpwp"
 //  "c_chem" ,  "c_bio"
 //  "c_fmus" , "c_phys"
@@ -11,10 +8,17 @@
 const USERS = [
   {
     username: "admin",
-    password: "admin123",
+    password: "",
     name: "System Administrator",
     role: "admin",
     editableCourses: []
+  },
+  {
+    username: "systemadministrator",
+    password: "admin123",
+    name: "System Administrator",
+    role: "admin",
+    editableCourses: ["c_eap",  "c_dels" , "c_rss", "c_mfus","c_itcs" , "c_dw" , "c_itpwp","c_chem" ,  "c_bio","c_fmus" , "c_phys","c_acc" , "c_eco" , "c_ib"]
   },
   {
     username: "fahim",
