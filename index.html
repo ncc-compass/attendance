@@ -438,9 +438,7 @@
         </div>
       </div>
 
-      <div id="login-error" style="color: var(--status-red-text); font-size: 0.8rem; margin-bottom: 12px; display: none; text-align: left;">
-        Incorrect password or unselected account.
-      </div>
+      <div id="login-error" style="color: var(--status-red-text); font-size: 0.8rem; margin-bottom: 12px; display: none; text-align: left;"></div>
 
       <button class="login-submit-btn" onclick="handleLogin()">Login</button>
 
@@ -548,6 +546,9 @@
   <script src="students.js"></script>
 
   <script>
+    // -------------------------------------------------------------
+    // REPLACE WITH YOUR COPIED APPS SCRIPT WEB APP URL
+    // -------------------------------------------------------------
     const GOOGLE_SCRIPT_API_URL = "https://script.google.com/macros/s/AKfycbxlXIi7L1r0htKxQgEomyAbOGf36jQxpU6ZUvupr83o9Qh7ECmb4qKNlzuPrLFwd08M/exec";
 
     let currentUser = null;
@@ -561,40 +562,38 @@
       localStorage.setItem("IELTS_ATTENDANCE_DB", JSON.stringify(attendanceDB));
     }
 
-   async function syncDatabaseFromCloud() {
-  try {
-    const cacheBuster = "cb=" + new Date().getTime();
-    const targetUrl = GOOGLE_SCRIPT_API_URL + (GOOGLE_SCRIPT_API_URL.includes("?") ? "&" : "?") + cacheBuster;
-    console.log("Fetching live data...");
+    async function syncDatabaseFromCloud() {
+      try {
+        const cacheBuster = "cb=" + new Date().getTime();
+        const targetUrl = GOOGLE_SCRIPT_API_URL + (GOOGLE_SCRIPT_API_URL.includes("?") ? "&" : "?") + cacheBuster;
 
-    // We removed 'headers' here so the browser does not trigger a CORS block
-    const res = await fetch(targetUrl, {
-      method: "GET",
-      redirect: "follow"
-    });
+        const res = await fetch(targetUrl);
+        const textData = await res.text();
 
-    if (!res.ok) {
-      throw new Error("HTTP error " + res.status);
+        // 1. Detect if Google is blocking access and returning an HTML login page instead of JSON
+        if (textData.trim().startsWith("<") || textData.includes("<html")) {
+          alert("SECURITY BLOCK: Google Apps Script is asking for a login. To fix this: Go to Apps Script -> Deploy -> Manage Deployments -> Edit -> set 'Who has access' to 'Anyone' -> Deploy.");
+          throw new Error("Google Apps Script returned HTML (Login page) instead of JSON data.");
+        }
+
+        const cloudDB = JSON.parse(textData);
+
+        if (cloudDB && typeof cloudDB === "object" && !cloudDB.error) {
+          attendanceDB = cloudDB;
+          saveAttendanceDBLocally();
+          console.log("Cloud sync successful");
+          return true;
+        } else {
+          console.error("Backend error payload:", cloudDB);
+        }
+      } catch (err) {
+        console.warn("Backend read failed, falling back to local storage.", err);
+        attendanceDB = JSON.parse(localStorage.getItem("IELTS_ATTENDANCE_DB") || "{}");
+      }
+      return false;
     }
-
-    const cloudDB = await res.json();
-    
-    // Validate we actually received data and not an error response
-    if (cloudDB && typeof cloudDB === "object" && !cloudDB.error) {
-      attendanceDB = cloudDB;
-      saveAttendanceDBLocally();
-      console.log("Cloud sync successful");
-      return true;
-    }
-  } catch (err) {
-    console.warn("Backend read failed, falling back to local storage.", err);
-    attendanceDB = JSON.parse(localStorage.getItem("IELTS_ATTENDANCE_DB") || "{}");
-  }
-  return false;
-}
 
     function dispatchCloudMutation(payload) {
-      // Use text/plain to avoid preflight OPTIONS block in Apps Script
       return fetch(GOOGLE_SCRIPT_API_URL, {
         method: "POST",
         mode: "no-cors",
@@ -810,11 +809,7 @@
       document.getElementById("app-view").innerHTML = html;
     }
 
-    async function renderAttendanceSheet(courseId, skipCloudSync = false) {
-      if (!skipCloudSync) {
-        await syncDatabaseFromCloud();
-      }
-
+    function renderAttendanceSheet(courseId) {
       if (!activeCohort) {
         for (const c of APP_DATA.cohorts) {
           const found = c.courses.find(x => x.id === courseId);
@@ -1073,9 +1068,7 @@
       courseRecord.sessions.sort((a, b) => new Date(a) - new Date(b));
       saveAttendanceDBLocally();
       closeCalendarModal();
-      
-      // Re-render immediately locally without waiting for cloud round-trip
-      renderAttendanceSheet(targetCourseId, true);
+      renderAttendanceSheet(targetCourseId);
     }
 
     function deleteSession(courseId, sessionDate) {
@@ -1097,7 +1090,7 @@
       });
 
       saveAttendanceDBLocally();
-      renderAttendanceSheet(courseId, true);
+      renderAttendanceSheet(courseId);
     }
 
     function updateStatus(courseId, studentId, sessionDate, newStatus) {
@@ -1115,7 +1108,7 @@
       });
 
       saveAttendanceDBLocally();
-      renderAttendanceSheet(courseId, true);
+      renderAttendanceSheet(courseId);
     }
 
     function openIncidentModal(courseId) {
@@ -1179,7 +1172,7 @@
 
       saveAttendanceDBLocally();
       closeIncidentModal();
-      renderAttendanceSheet(currentModalCourseId, true);
+      renderAttendanceSheet(currentModalCourseId);
     }
 
     function deleteIncidentRecord(courseId, studentId, incidentId) {
@@ -1196,7 +1189,7 @@
 
         saveAttendanceDBLocally();
         openStudentReport(courseId, studentId);
-        renderAttendanceSheet(courseId, true);
+        renderAttendanceSheet(courseId);
       }
     }
 
