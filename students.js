@@ -30,16 +30,20 @@ const STUDENT_DIRECTORY = [
   // ----------------------------------------
   // AUTUMN 2026
   // ----------------------------------------
-  { id: "226462", name: "Adiyat Mustafiz Zarif", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_phys", "c_fmus"] },
-  { id: "226463", name: "Arpon Joseph Rozario", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_chem", "c_bio"] },
-  { id: "226464", name: "Loreta Almida", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_chem", "c_bio"] },
-  { id: "226465", name: "Manha Akbar Nidhi", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_acc" , "c_ib"] },
-  { id: "226467", name: "MD Rakib Chowdhury", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_acc" , "c_ib"] },
-  { id: "226468", name: "Nabila Nasir", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_acc" , "c_ib"] },
-  { id: "226469", name: "Nashwa Shabbir", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_acc" , "c_ib"] },
-  { id: "226470", name: "Pareeza Nawar", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_acc", "c_eco"] },
-  { id: "226471", name: "Sanjana Islam Saba", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_chem", "c_bio"] },
-  { id: "226473", name: "Tanzib Osman", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus", "c_acc" , "c_ib"] },
+  { id: "226462", name: "Adiyat Mustafiz Zarif", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "226463", name: "Arpon Joseph Rozario", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "226464", name: "Loreta Almida", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "226465", name: "Manha Akbar Nidhi", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "226467", name: "MD Rakib Chowdhury", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "226468", name: "Nabila Nasir", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "226469", name: "Nashwa Shabbir", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "226470", name: "Pareeza Nawar", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "226471", name: "Sanjana Islam Saba", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "226473", name: "Tanzib Osman", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "222040", name: "Mashrura Zarin Tasnim", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "222042", name: "Ridni Anha", cohort: "autumn-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  
+  // Shahriyar taking the IT Pathway
   { id: "226472", name: "Shahriyar Ahmed Plabon", cohort: "autumn-2026", enrolled: ["c_eap", "c_itcs", "c_dw", "c_itpwp"] },
 
   // ----------------------------------------
@@ -59,31 +63,43 @@ const STUDENT_DIRECTORY = [
 ];
 
 // ==========================================
-// 3. DYNAMIC DATA BUILDER 
-// (Translates the new architecture so index.html doesn't break)
+// 3. DYNAMIC DATA BUILDER (WITH SAFETY RAILS)
 // ==========================================
 const APP_DATA = {
   cohorts: COHORTS.map(cohort => {
-    // 1. Find all students in this cohort
     const cohortStudents = STUDENT_DIRECTORY.filter(s => s.cohort === cohort.id);
     
-    // 2. Figure out every unique course being taken by students in this cohort
-    const uniqueCourseIds = [...new Set(cohortStudents.flatMap(s => s.enrolled))];
+    // Safely extract unique course IDs
+    let allCourseIds = [];
+    cohortStudents.forEach(s => {
+      if (s.enrolled && Array.isArray(s.enrolled)) {
+        allCourseIds = allCourseIds.concat(s.enrolled);
+      }
+    });
+    const uniqueCourseIds = [...new Set(allCourseIds)];
 
-    // 3. Build the course objects dynamically
     const dynamicCourses = uniqueCourseIds.map(courseId => {
+      // SAFETY CHECK: Ensure courses.js is loaded and the course actually exists
+      if (typeof COURSE_CATALOG === 'undefined') {
+        console.error("🚨 CRITICAL ERROR: courses.js failed to load before students.js!");
+        return null;
+      }
+      
       const courseInfo = COURSE_CATALOG[courseId];
-      // Filter the roster to only students enrolled in this specific course
-      const courseRoster = cohortStudents.filter(s => s.enrolled.includes(courseId));
+      if (!courseInfo) {
+        console.error(`🚨 ERROR: Course tag '${courseId}' is in a student's profile, but missing from courses.js!`);
+        return null;
+      }
+
+      const courseRoster = cohortStudents.filter(s => s.enrolled && s.enrolled.includes(courseId));
       
       return {
-        id: courseId + "_" + cohort.id, // e.g., "c_eap_winter-2026"
-        originalCourseId: courseId,
+        id: courseId, // Keeping the exact ID preserves your existing database records and auth.js permissions!
         name: courseInfo.name,
         instructor: courseInfo.instructor,
         students: courseRoster.map(s => ({ id: s.id, name: s.name }))
       };
-    });
+    }).filter(course => course !== null); // Drop broken courses so the app doesn't crash
 
     return {
       id: cohort.id,
