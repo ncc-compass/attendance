@@ -243,6 +243,7 @@
     .ws-chip-amber { background-color: var(--status-amber-bg); color: var(--status-amber-text); border-color: var(--status-amber-border); }
     .ws-chip-red { background-color: var(--status-red-bg); color: var(--status-red-text); border-color: var(--status-red-border); }
     .ws-chip-blue { background-color: var(--status-blue-bg); color: var(--status-blue-text); border-color: var(--status-blue-border); }
+    .ws-chip-gray { background-color: var(--surface-alt); color: var(--text-muted); border-color: var(--border-subtle); }
     
     /* DROPDOWN STATUS COLORS */
     .ws-select.status-present { background-color: var(--status-green-bg); color: var(--status-green-text); border-color: var(--status-green-border); font-weight: 700; }
@@ -1037,10 +1038,16 @@
           }
         });
 
-        const rate = markedSessionsCount > 0 ? Math.round((attendedCount / markedSessionsCount) * 100) : 0;
-        let rateChip = "ws-chip-green";
-        if (rate < 50) rateChip = "ws-chip-red";
-        else if (rate < 75) rateChip = "ws-chip-amber";
+        let rateText = "N/A";
+        let rateChip = "ws-chip-gray";
+        
+        if (markedSessionsCount > 0) {
+          const rate = Math.round((attendedCount / markedSessionsCount) * 100);
+          rateText = rate + "%";
+          rateChip = "ws-chip-green";
+          if (rate < 50) rateChip = "ws-chip-red";
+          else if (rate < 75) rateChip = "ws-chip-amber";
+        }
 
         html += `
           <tr>
@@ -1084,8 +1091,8 @@
                 `;
               }).join('')
             }
-            <td class="attendance-rate-cell">
-              <span class="ws-chip ${rateChip}">${rate}%</span>
+           <td class="attendance-rate-cell">
+              <span class="ws-chip ${rateChip}">${rateText}</span>
             </td>
             <td class="ws-no-print ws-hide-on-summary-print" style="text-align: center;">
               <button class="ws-btn ws-btn-outline ws-btn-sm" onclick="openStudentReport('${courseId}', '${student.id}')">
@@ -1345,13 +1352,19 @@
         }
       });
 
-      const totalSessions = courseRecord.sessions.length;
+     const totalSessions = courseRecord.sessions.length;
       const attendedSessions = presentCount + lateCount + onlineCount;
-      const rate = markedCount > 0 ? Math.round((attendedSessions / markedCount) * 100) : 0;
-
-      let rateColor = "var(--status-green-text)";
-      if (rate < 50) rateColor = "var(--status-red-text)";
-      else if (rate < 75) rateColor = "var(--status-amber-text)";
+      
+      let rateText = "N/A";
+      let rateColor = "var(--text-muted)";
+      
+      if (markedCount > 0) {
+        const rate = Math.round((attendedSessions / markedCount) * 100);
+        rateText = rate + "%";
+        rateColor = "var(--status-green-text)";
+        if (rate < 50) rateColor = "var(--status-red-text)";
+        else if (rate < 75) rateColor = "var(--status-amber-text)";
+      }
 
       const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(courseId);
 
@@ -1397,7 +1410,7 @@
 
           <div style="background: var(--surface-alt); padding: 16px 20px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border-light); margin-bottom: 20px;">
             <span style="font-weight: 700; font-size: 0.95rem; text-transform: uppercase; color: var(--text-muted);">Aggregate Attendance Performance</span>
-            <span style="font-size: 1.8rem; font-weight: 800; color: ${rateColor};">${rate}%</span>
+            <span style="font-size: 1.8rem; font-weight: 800; color: ${rateColor};">${rateText}</span>
           </div>
 
           <div>
