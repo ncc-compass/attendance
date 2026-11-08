@@ -1470,17 +1470,59 @@
     }
 
     function openStudentReport(courseId, studentId) {
-      let course = null; let cohort = null;
-      for (const c of APP_DATA.cohorts) {
-        const found = c.courses.find(x => x.id === courseId);
-        if (found) { cohort = c; course = found; break; }
+      let course = null;
+      let cohort = null;
+      
+      if (activeCourse && activeCourse.id === courseId) {
+        course = activeCourse;
+        cohort = activeCohort;
+      } else {
+        for (const c of APP_DATA.cohorts) {
+          const found = c.courses.find(x => x.id === courseId);
+          if (found) {
+            cohort = c;
+            course = found;
+            break;
+          }
+        }
       }
-      const student = course.students.find(s => s.id === studentId);
-      const courseRecord = attendanceDB[courseId] || { sessions: [], records: {}, incidents: {} };
-      const sRecords = courseRecord.records[studentId] || {};
-      const sIncidents = (courseRecord.incidents && courseRecord.incidents[studentId]) || [];
 
-      let presentCount = 0; let lateCount = 0; let onlineCount = 0; let informedCount = 0; let absentCount = 0; let markedCount = 0;
+      if (!course) {
+        alert("Course record could not be resolved.");
+        return;
+      }
+
+      // Clean and trim IDs to prevent subtle mismatch failures
+      const targetId = String(studentId).trim();
+      const student = course.students.find(s => String(s.id).trim() === targetId);
+      
+      if (!student) {
+        alert("Student record not found in this course roster.");
+        return;
+      }
+
+      const courseRecord = attendanceDB[courseId] || { sessions: [], records: {}, incidents: {} };
+      
+      // Flexible lookup for attendance records and incidents supporting slight key variations
+      let sRecords = courseRecord.records[targetId] || {};
+      if (Object.keys(sRecords).length === 0) {
+        const foundKey = Object.keys(courseRecord.records).find(k => String(k).trim() === targetId);
+        if (foundKey) sRecords = courseRecord.records[foundKey];
+      }
+
+      let sIncidents = (courseRecord.incidents && courseRecord.incidents[targetId]) || [];
+      if (sIncidents.length === 0 && courseRecord.incidents) {
+        const foundIncKey = Object.keys(courseRecord.incidents).find(k => String(k).trim() === targetId);
+        if (foundIncKey) sIncidents = courseRecord.incidents[foundIncKey];
+      }
+
+      let presentCount = 0;
+      let lateCount = 0;
+      let onlineCount = 0;
+      let informedCount = 0;
+      let absentCount = 0;
+      let markedCount = 0;
+
       courseRecord.sessions.forEach(d => {
         const status = sRecords[d] || "";
         if (status !== "") {
@@ -1495,56 +1537,109 @@
 
       const totalSessions = courseRecord.sessions.length;
       const attendedSessions = presentCount + lateCount + onlineCount;
-      let rateText = "N/A"; let rateColor = "var(--text-muted)";
+      
+      let rateText = "N/A";
+      let rateColor = "var(--text-muted)";
+      
       if (markedCount > 0) {
         const rate = Math.round((attendedSessions / markedCount) * 100);
-        rateText = rate + "%"; rateColor = "var(--status-green-text)";
+        rateText = rate + "%";
+        rateColor = "var(--status-green-text)";
         if (rate < 50) rateColor = "var(--status-red-text)";
         else if (rate < 75) rateColor = "var(--status-amber-text)";
       }
+
       const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(courseId);
 
       let reportHTML = `
         <div class="dossier-card">
           <div style="border-bottom: 2px solid var(--ielts-border); padding-bottom: 12px; margin-bottom: 14px; display: flex; justify-content: space-between;">
-            <div><h3 style="font-size: 1.15rem; color: var(--text-dark);">${student.name}</h3><p style="color: var(--text-muted); font-size: 0.85rem;">Candidate ID: <strong style="font-family: monospace;">${student.id}</strong></p></div>
-            <div style="text-align: right;"><p style="font-size: 0.85rem; font-weight: 600; color: var(--text-dark);">${course.name}</p><p style="font-size: 0.775rem; color: var(--text-muted);">${cohort.name}</p></div>
+            <div>
+              <h3 style="font-size: 1.15rem; color: var(--text-dark);">${student.name}</h3>
+              <p style="color: var(--text-muted); font-size: 0.85rem;">Candidate ID: <strong style="font-family: monospace;">${student.id}</strong></p>
+            </div>
+            <div style="text-align: right;">
+              <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-dark);">${course.name}</p>
+              <p style="font-size: 0.775rem; color: var(--text-muted);">${cohort ? cohort.name : ''}</p>
+            </div>
           </div>
+
           <div class="dossier-stats-grid">
-            <div class="dossier-stat-box"><div class="dossier-stat-num">${totalSessions}</div><div class="dossier-stat-lbl">Total Classes</div></div>
-            <div class="dossier-stat-box"><div class="dossier-stat-num" style="color: var(--status-green-text);">${presentCount}</div><div class="dossier-stat-lbl">Present</div></div>
-            <div class="dossier-stat-box"><div class="dossier-stat-num" style="color: var(--status-amber-text);">${lateCount}</div><div class="dossier-stat-lbl">Late</div></div>
-            <div class="dossier-stat-box"><div class="dossier-stat-num" style="color: var(--status-blue-text);">${onlineCount}</div><div class="dossier-stat-lbl">Joined Online</div></div>
-            <div class="dossier-stat-box"><div class="dossier-stat-num" style="color: var(--status-amber-text);">${informedCount}</div><div class="dossier-stat-lbl">Informed Absence</div></div>
-            <div class="dossier-stat-box"><div class="dossier-stat-num" style="color: var(--status-red-text);">${absentCount}</div><div class="dossier-stat-lbl">Unexcused Absent</div></div>
+            <div class="dossier-stat-box">
+              <div class="dossier-stat-num">${totalSessions}</div>
+              <div class="dossier-stat-lbl">Total Classes</div>
+            </div>
+            <div class="dossier-stat-box">
+              <div class="dossier-stat-num" style="color: var(--status-green-text);">${presentCount}</div>
+              <div class="dossier-stat-lbl">Present</div>
+            </div>
+            <div class="dossier-stat-box">
+              <div class="dossier-stat-num" style="color: var(--status-amber-text);">${lateCount}</div>
+              <div class="dossier-stat-lbl">Late</div>
+            </div>
+            <div class="dossier-stat-box">
+              <div class="dossier-stat-num" style="color: var(--status-blue-text);">${onlineCount}</div>
+              <div class="dossier-stat-lbl">Joined Online</div>
+            </div>
+            <div class="dossier-stat-box">
+              <div class="dossier-stat-num" style="color: var(--status-amber-text);">${informedCount}</div>
+              <div class="dossier-stat-lbl">Informed Absence</div>
+            </div>
+            <div class="dossier-stat-box">
+              <div class="dossier-stat-num" style="color: var(--status-red-text);">${absentCount}</div>
+              <div class="dossier-stat-lbl">Unexcused Absent</div>
+            </div>
           </div>
+
           <div style="background: var(--surface-alt); padding: 16px 20px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border-light); margin-bottom: 20px;">
-            <span style="font-weight: 700; font-size: 0.95rem; text-transform: uppercase; color: var(--text-muted);">Aggregate Attendance Performance</span><span style="font-size: 1.8rem; font-weight: 800; color: ${rateColor};">${rateText}</span>
+            <span style="font-weight: 700; font-size: 0.95rem; text-transform: uppercase; color: var(--text-muted);">Aggregate Attendance Performance</span>
+            <span style="font-size: 1.8rem; font-weight: 800; color: ${rateColor};">${rateText}</span>
           </div>
-          <div><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid var(--border-light); padding-bottom: 6px;"><h4 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">Candidate Incident Registry (${sIncidents.length})</h4></div>`;
+
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid var(--border-light); padding-bottom: 6px;">
+              <h4 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">Candidate Incident Registry (${sIncidents.length})</h4>
+            </div>
+      `;
 
       if (sIncidents.length === 0) {
-        reportHTML += `<div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 0.85rem; background: var(--surface-alt); border-radius: 4px; border: 1px solid var(--border-light);">No behavioral, disciplinary, or medical incidents filed for this candidate.</div>`;
+        reportHTML += `
+          <div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 0.85rem; background: var(--surface-alt); border-radius: 4px; border: 1px solid var(--border-light);">
+            No behavioral, disciplinary, or medical incidents filed for this candidate.
+          </div>
+        `;
       } else {
         const sortedIncidents = [...sIncidents].sort((a, b) => new Date(b.date) - new Date(a.date));
+
         sortedIncidents.forEach(inc => {
           reportHTML += `
             <div class="incident-log-item">
               <div class="incident-log-header">
-                <div><span class="ws-chip ws-chip-amber" style="margin-right: 8px;">${inc.category}</span><strong style="font-size: 0.85rem; color: var(--text-dark);">${formatClassDate(inc.date)}</strong></div>
-                <div style="display: flex; align-items: center; gap: 8px;"><span style="font-size: 0.75rem; color: var(--text-muted);">Logged by: ${inc.recordedBy}</span>
-                  ${canEdit ? `<button class="ws-no-print" title="Delete incident" style="background:none; border:none; color:var(--text-light); cursor:pointer; font-size:0.9rem;" onmouseover="this.style.color='var(--status-red-text)'" onmouseout="this.style.color='var(--text-light)'" onclick="deleteIncidentRecord('${courseId}', '${student.id}', '${inc.id}')">✕</button>` : ''}
+                <div>
+                  <span class="ws-chip ws-chip-amber" style="margin-right: 8px;">${inc.category}</span>
+                  <strong style="font-size: 0.85rem; color: var(--text-dark);">${formatClassDate(inc.date)}</strong>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 0.75rem; color: var(--text-muted);">Logged by: ${inc.recordedBy}</span>
+                  ${canEdit ? `
+                    <button class="ws-no-print" title="Delete incident" style="background:none; border:none; color:var(--text-light); cursor:pointer; font-size:0.9rem;" onmouseover="this.style.color='var(--status-red-text)'" onmouseout="this.style.color='var(--text-light)'" onclick="deleteIncidentRecord('${courseId}', '${targetId}', '${inc.id}')">✕</button>
+                  ` : ''}
                 </div>
               </div>
               <p style="font-size: 0.85rem; color: var(--text-main); margin-top: 6px; white-space: pre-wrap; line-height: 1.4;">${inc.notes}</p>
-            </div>`;
+            </div>
+          `;
         });
       }
-      reportHTML += `</div></div>`;
+
+      reportHTML += `
+          </div>
+        </div>
+      `;
+
       document.getElementById("student-report-content").innerHTML = reportHTML;
       document.getElementById("student-report-modal").style.display = "flex";
     }
-
     function closeStudentReportModal() { document.getElementById("student-report-modal").style.display = "none"; }
     function printIndividualDossier() {
       document.body.classList.add("printing-individual-dossier"); window.print();
