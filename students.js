@@ -15,7 +15,7 @@
 const COHORTS = [
   { id: "autumn-2026", name: "L3 Autumn 2026" },
   { id: "winter-2026", name: "L3 Winter 2026" },
-  { id: "sprint-2026", name: "L3 Spring 2026" }
+  { id: "spring-2026", name: "L3 Spring 2026" }
 ];
 
 // ==========================================
