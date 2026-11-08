@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Compass Attendance System 2.2.1</title>
+  <title>Compass Attendance System 2.3.0</title>
   
   <style>
     :root {
@@ -265,6 +265,16 @@
       z-index: 5;
     }
     
+    /* ADMIN DASHBOARD MATRIX STYLES */
+    .matrix-input {
+      width: 100%; padding: 6px; font-size: 0.8rem; border: 1px solid var(--border-subtle); border-radius: 3px; font-family: inherit;
+    }
+    .matrix-select {
+      width: 100%; padding: 6px; font-size: 0.8rem; border: 1px solid var(--border-subtle); border-radius: 3px;
+    }
+    .matrix-checkbox { transform: scale(1.15); cursor: pointer; }
+    .btn-remove-row { color: var(--status-red-text); background: none; border: none; cursor: pointer; font-size: 1.1rem; font-weight: bold; }
+
     .ws-modal-overlay {
       position: fixed;
       inset: 0;
@@ -436,6 +446,9 @@
       <span class="ws-brand-tag">COMPASS</span>
     </div>
     <div id="user-meta-bar" class="ws-user-meta" style="display: none;">
+      <!-- THE SYSTEM ADMIN MASTER BUTTON (Only visible to 'sezad') -->
+      <button id="btn-admin-dash" class="ws-btn ws-btn-outline" style="display:none; color: var(--ielts-red); border-color: var(--ielts-red); font-weight: 800;" onclick="renderAdminDashboard()">⚙️ SYSTEM ADMIN</button>
+      
       <strong class="ws-user-name" id="display-user-name" style="font-size: 0.95rem; color: var(--text-dark);"></strong>
       <button class="ws-btn ws-btn-outline" onclick="handleLogout()">Sign Out</button>
     </div>
@@ -473,22 +486,7 @@
 
       <div class="login-footer-credits">
         Developed by <span class="author-name">MD Sezadur Rahman</span>
-        <div class="login-footer-version">Version 2.2.1</div>
-        <div class="login-legal-row">
-          <button type="button" class="login-legal-link" onclick="openPolicyModal('privacy')">Privacy Policy</button>
-          <span>•</span>
-          <button type="button" class="login-legal-link" onclick="openPolicyModal('terms')">Terms & Conditions</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div id="policy-modal" class="ws-modal-overlay" style="display: none;">
-    <div class="ws-modal" style="max-width: 520px;">
-      <h2 id="policy-modal-title" style="font-size: 1.15rem; font-weight: 700; margin-bottom: 8px; color: var(--text-dark);"></h2>
-      <div id="policy-modal-body" style="font-size: 0.85rem; color: var(--text-main); line-height: 1.6; max-height: 50vh; overflow-y: auto; margin-bottom: 16px;"></div>
-      <div style="display: flex; justify-content: flex-end;">
-        <button class="ws-btn ws-btn-outline" onclick="closePolicyModal()">Close</button>
+        <div class="login-footer-version">Version 2.3.0</div>
       </div>
     </div>
   </div>
@@ -593,7 +591,7 @@
     const NODE_API_URL = "https://compass-backend-yq9g.onrender.com";
 
     // -------------------------------------------------------------
-    // NEW GLOBAL CONFIG VARIABLES (Replaces static files)
+    // GLOBAL CONFIG VARIABLES
     // -------------------------------------------------------------
     let USERS = [];
     let COURSE_CATALOG = {};
@@ -606,6 +604,12 @@
     let currentEditingDate = null;
     let currentNoteContext = { courseId: null, studentId: null, sessionDate: null };
     let attendanceDB = {};
+
+    // ADMIN DASHBOARD STATE VARIABLES
+    let adminWorkingUsers = [];
+    let adminWorkingStudents = [];
+    let adminSelectedCohortId = "";
+    let adminCohortName = "";
 
     // -------------------------------------------------------------
     // CLOUD CONFIGURATION SYNC
@@ -636,21 +640,16 @@
 
     async function syncDatabaseFromCloud() {
       try {
-        console.log("Fetching live attendance data from MongoDB Atlas...");
         const res = await fetch(`${NODE_API_URL}/api/db`);
-
         if (!res.ok) throw new Error("HTTP error " + res.status);
 
         const cloudDB = await res.json();
-
         if (cloudDB && typeof cloudDB === "object" && !cloudDB.error) {
           attendanceDB = cloudDB;
           saveAttendanceDBLocally();
-          console.log("Cloud sync successful");
           return true;
         }
       } catch (err) {
-        console.warn("Backend read failed, falling back to local storage.", err);
         attendanceDB = JSON.parse(localStorage.getItem("IELTS_ATTENDANCE_DB") || "{}");
       }
       return false;
@@ -658,7 +657,6 @@
 
     function dispatchCloudMutation(courseId) {
       if (!attendanceDB[courseId]) return;
-      
       fetch(`${NODE_API_URL}/api/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -689,16 +687,12 @@
     }
 
     window.addEventListener("DOMContentLoaded", async () => {
-      // Give visual feedback that the free server might take a moment to wake up
       const selectEl = document.getElementById("login-account-select");
       if (selectEl) {
-        selectEl.innerHTML = `<option value="" disabled selected>Connecting please wait......</option>`;
+        selectEl.innerHTML = `<option value="" disabled selected>Waking up secure server (takes ~45s)...</option>`;
       }
 
-      // 1. Force the system to fetch the architecture from MongoDB first
       await fetchSystemConfig();
-      
-      // 2. Populate dropdowns now that USERS exist
       initializeAccountDropdown();
 
       const savedUserStr = localStorage.getItem("COMPASS_CURRENT_USER");
@@ -709,6 +703,11 @@
           document.getElementById("user-meta-bar").style.display = "flex";
           document.getElementById("display-user-name").innerText = currentUser.name;
 
+          // MASTER ADMIN LOCK - Specifically programmed for the System Administrator ('sezad')
+          if (currentUser.username === "sezad") {
+            document.getElementById("btn-admin-dash").style.display = "inline-flex";
+          }
+
           document.getElementById("app-view").innerHTML = '<div style="padding: 40px; text-align: center; color: var(--text-muted); font-weight: 600;">Restoring session and syncing data...</div>';
 
           await syncDatabaseFromCloud();
@@ -716,10 +715,14 @@
           const savedStateStr = localStorage.getItem("COMPASS_VIEW_STATE");
           if (savedStateStr) {
             const savedState = JSON.parse(savedStateStr);
-            if (savedState.view === "sheet" && savedState.id) {
+            if (savedState.view === "admin" && currentUser.username === "sezad") {
+              renderAdminDashboard();
+            } else if (savedState.view === "sheet" && savedState.id) {
               renderAttendanceSheet(savedState.id, true);
             } else if (savedState.view === "courses" && savedState.id) {
               renderCoursesView(savedState.id);
+            } else if (savedState.view === "summary" && savedState.id) {
+              renderCohortSummary(savedState.id);
             } else {
               renderCohortsView();
             }
@@ -727,7 +730,6 @@
             renderCohortsView();
           }
         } catch (err) {
-          console.error("Failed to restore session", err);
           handleLogout();
         }
       }
@@ -737,7 +739,6 @@
       const pwdInput = document.getElementById("login-password");
       const iconShow = document.getElementById("pwd-icon-show");
       const iconHide = document.getElementById("pwd-icon-hide");
-
       if (pwdInput.type === "password") {
         pwdInput.type = "text";
         iconHide.style.display = "none";
@@ -749,35 +750,6 @@
       }
     }
 
-    function openPolicyModal(type) {
-      const modal = document.getElementById("policy-modal");
-      const title = document.getElementById("policy-modal-title");
-      const body = document.getElementById("policy-modal-body");
-
-      if (type === "privacy") {
-        title.innerText = "Institutional Privacy Policy";
-        body.innerHTML = `
-          <p><strong>1. Data Governance & Purpose</strong><br>
-          Compass Attendance System collects and manages student candidate attendance, performance ratios, and evaluative incident notes solely for official academic tracking and institutional accreditation compliance.</p><br>
-          <p><strong>2. Access Control</strong><br>
-          User permissions are role-restricted. Instructors may view and record data for assigned courses only.</p>
-        `;
-      } else {
-        title.innerText = "Terms & Conditions";
-        body.innerHTML = `
-          <p><strong>1. Authorized Academic Use</strong><br>
-          Access to this workstation environment is restricted to verified educational personnel.</p><br>
-          <p><strong>2. Accuracy of Evaluator Records</strong><br>
-          Instructors must accurately document attendance categories.</p>
-        `;
-      }
-      modal.style.display = "flex";
-    }
-
-    function closePolicyModal() {
-      document.getElementById("policy-modal").style.display = "none";
-    }
-
     async function handleLogin() {
       const selectedUsername = document.getElementById("login-account-select").value;
       const enteredPassword = document.getElementById("login-password").value.trim();
@@ -786,20 +758,23 @@
 
       if (!selectedUsername) {
         errEl.innerText = "Please choose an account from the menu.";
-        errEl.style.display = "block";
-        return;
+        errEl.style.display = "block"; return;
       }
 
       const user = USERS.find(x => x.username === selectedUsername && x.password === enteredPassword);
-
       if (user) {
         currentUser = user;
-        
         localStorage.setItem("COMPASS_CURRENT_USER", JSON.stringify(currentUser));
         
         errEl.style.display = "none";
         submitBtn.innerText = "Connecting to Atlas...";
         submitBtn.disabled = true;
+
+        if (currentUser.username === "sezad") {
+          document.getElementById("btn-admin-dash").style.display = "inline-flex";
+        } else {
+          document.getElementById("btn-admin-dash").style.display = "none";
+        }
 
         await syncDatabaseFromCloud();
 
@@ -825,6 +800,7 @@
       activeCourse = null;
       document.getElementById("login-modal").style.display = "flex";
       document.getElementById("user-meta-bar").style.display = "none";
+      document.getElementById("btn-admin-dash").style.display = "none";
       document.getElementById("app-view").innerHTML = "";
       document.getElementById("breadcrumbs").innerHTML = "";
       
@@ -841,151 +817,424 @@
       const el = document.getElementById("breadcrumbs");
       let html = `<span class="actionable" onclick="renderCohortsView()">Cohorts</span>`;
 
-      if (activeCohort) {
-        html += ` <span class="divider">/</span> <span class="actionable" onclick="renderCoursesView('${activeCohort.id}')">${activeCohort.name}</span>`;
+      const stateStr = localStorage.getItem("COMPASS_VIEW_STATE");
+      let viewState = "cohorts";
+      if(stateStr) {
+          try { viewState = JSON.parse(stateStr).view; } catch(e){}
       }
-      if (activeCourse) {
-        html += ` <span class="divider">/</span> <span>${activeCourse.name}</span>`;
+
+      if (viewState === "admin") {
+         html += ` <span class="divider">/</span> <span style="color: var(--ielts-red); font-weight: 700;">System Administration</span>`;
+      } else {
+         if (activeCohort) {
+           html += ` <span class="divider">/</span> <span class="actionable" onclick="renderCoursesView('${activeCohort.id}')">${activeCohort.name}</span>`;
+         }
+         if (activeCourse) {
+           html += ` <span class="divider">/</span> <span>${activeCourse.name}</span>`;
+         }
+         if (viewState === "summary") {
+           html += ` <span class="divider">/</span> <span>Master Summary</span>`;
+         }
       }
       el.innerHTML = html;
     }
 
-    function renderCohortsView() {
-      saveViewState("cohorts"); 
-      activeCohort = null;
-      activeCourse = null;
-      updateBreadcrumbs();
+    // ==========================================
+    // PHASE 5: SYSTEM ADMIN DASHBOARD (PIVOT MATRIX)
+    // ==========================================
 
-      let gridHtml = '';
-      let visibleCohortsCount = 0;
-
-      APP_DATA.cohorts.forEach(c => {
-        const visibleCourses = c.courses.filter(crs => 
-          currentUser.role === "admin" || (currentUser.editableCourses && currentUser.editableCourses.includes(crs.id))
-        );
-
-        if (visibleCourses.length > 0) {
-          visibleCohortsCount++;
-          gridHtml += `
-            <div class="ws-card" onclick="renderCoursesView('${c.id}')">
-              <h3>${c.name}</h3>
-              <p>${visibleCourses.length} Assigned Course Rosters</p>
+    function renderAdminDashboard() {
+      if (currentUser.username !== "sezad") return alert("Unauthorized access restricted by system logic.");
+      saveViewState("admin");
+      activeCohort = null; activeCourse = null;
+      updateBreadcrumbs(); 
+      
+      // Clone users for matrix editing
+      adminWorkingUsers = JSON.parse(JSON.stringify(USERS));
+      
+      let html = `
+        <div class="ws-panel" style="border-color: var(--ielts-red); box-shadow: 0 4px 15px rgba(211,47,47,0.15);">
+          <div class="ws-panel-header" style="background-color: var(--ielts-red-soft); border-bottom: 1px solid #fca5a5;">
+            <div>
+              <h2 class="ws-panel-title" style="color: var(--ielts-red);">Staff Access & Permissions Matrix</h2>
+              <span style="font-size: 0.775rem; color: var(--status-red-text);">Check a box to grant a teacher full editing power for that roster.</span>
             </div>
-          `;
-        }
+            <button id="btn-save-staff" class="ws-btn ws-btn-primary" onclick="saveStaffMatrix()">Save Staff Updates</button>
+          </div>
+          <div class="ws-panel-body" style="padding: 0;">
+            <div class="ws-table-container" id="admin-staff-container"></div>
+          </div>
+        </div>
+        
+        <div class="ws-panel" style="border-color: var(--ielts-red); box-shadow: 0 4px 15px rgba(211,47,47,0.15);">
+          <div class="ws-panel-header" style="background-color: var(--ielts-red-soft); border-bottom: 1px solid #fca5a5;">
+            <div>
+              <h2 class="ws-panel-title" style="color: var(--ielts-red);">Academic Cohort Matrix</h2>
+              <span style="font-size: 0.775rem; color: var(--status-red-text);">Check boxes to instantly enroll candidates into courses.</span>
+            </div>
+            <div style="display:flex; gap: 8px; align-items:center;">
+              <select id="admin-cohort-select" class="ws-select" style="min-width: 200px; font-weight: 700; border-color: var(--status-red-border);" onchange="loadAdminCohort(this.value)">
+                <option value="">-- Select a Cohort to Edit --</option>
+                ${APP_DATA.cohorts.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+                <option value="NEW_COHORT" style="font-weight: 800; color: var(--ielts-red);">+ CREATE BRAND NEW COHORT</option>
+              </select>
+              <button id="btn-save-cohort" class="ws-btn ws-btn-primary" onclick="saveCohortMatrix()">Save Cohort Updates</button>
+            </div>
+          </div>
+          <div class="ws-panel-body" style="padding: 0;">
+            <div class="ws-table-container" id="admin-cohort-container">
+              <div style="text-align:center; color: var(--text-muted); padding: 40px; font-weight: 600;">Select a cohort from the dropdown menu to open its enrollment matrix.</div>
+            </div>
+          </div>
+        </div>
+      `;
+      document.getElementById("app-view").innerHTML = html;
+      drawStaffMatrix();
+    }
+
+    function drawStaffMatrix() {
+      const allCourseIds = Object.keys(COURSE_CATALOG);
+      
+      let html = `
+        <table class="ws-table">
+          <thead>
+            <tr>
+              <th style="width: 140px;">Full Name</th>
+              <th style="width: 120px;">Username</th>
+              <th style="width: 120px;">Password</th>
+              <th style="width: 100px;">System Role</th>
+              ${allCourseIds.map(id => `<th style="text-align: center; font-size: 0.7rem;" title="${COURSE_CATALOG[id].name}">${id.replace('c_', '').toUpperCase()}</th>`).join('')}
+              <th style="text-align: center;">🗑️</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      adminWorkingUsers.forEach((u, i) => {
+        if (!u.editableCourses) u.editableCourses = [];
+        html += `
+          <tr>
+            <td><input type="text" class="matrix-input" value="${u.name}" onchange="adminWorkingUsers[${i}].name = this.value"></td>
+            <td><input type="text" class="matrix-input" value="${u.username}" onchange="adminWorkingUsers[${i}].username = this.value"></td>
+            <td><input type="text" class="matrix-input" value="${u.password}" onchange="adminWorkingUsers[${i}].password = this.value"></td>
+            <td>
+              <select class="matrix-select" onchange="adminWorkingUsers[${i}].role = this.value">
+                <option value="teacher" ${u.role === 'teacher' ? 'selected' : ''}>Teacher</option>
+                <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+              </select>
+            </td>
+            ${allCourseIds.map(courseId => `
+              <td style="text-align: center;">
+                <input type="checkbox" class="matrix-checkbox" onchange="toggleStaffCourse(${i}, '${courseId}', this.checked)" ${u.editableCourses.includes(courseId) ? 'checked' : ''}>
+              </td>
+            `).join('')}
+            <td style="text-align: center;">
+              <button class="btn-remove-row" onclick="removeAdminStaff(${i})">✕</button>
+            </td>
+          </tr>
+        `;
       });
 
-      if (visibleCohortsCount === 0) {
-        gridHtml = `<div style="padding: 20px; color: var(--text-muted);">No courses assigned to your account in any active cohorts.</div>`;
+      html += `
+          </tbody>
+        </table>
+        <div style="padding: 12px 14px; background-color: var(--surface-alt);">
+          <button class="ws-btn ws-btn-outline ws-btn-sm" style="font-weight: 700;" onclick="addBlankStaff()">+ Add New Staff Member</button>
+        </div>
+      `;
+      document.getElementById("admin-staff-container").innerHTML = html;
+    }
+
+    function toggleStaffCourse(userIndex, courseId, isChecked) {
+      const u = adminWorkingUsers[userIndex];
+      if (isChecked) {
+        if (!u.editableCourses.includes(courseId)) u.editableCourses.push(courseId);
+      } else {
+        u.editableCourses = u.editableCourses.filter(id => id !== courseId);
+      }
+    }
+
+    function addBlankStaff() {
+      adminWorkingUsers.push({ username: '', password: '', name: '', role: 'teacher', editableCourses: [] });
+      drawStaffMatrix();
+    }
+
+    function removeAdminStaff(index) {
+      if(confirm("Are you sure you want to remove this staff member from the system?")) {
+        adminWorkingUsers.splice(index, 1);
+        drawStaffMatrix();
+      }
+    }
+
+    async function saveStaffMatrix() {
+      const btn = document.getElementById("btn-save-staff");
+      btn.innerText = "Saving to Atlas..."; btn.disabled = true;
+
+      try {
+        const res = await fetch(`${NODE_API_URL}/api/admin/bulk-users`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ users: adminWorkingUsers })
+        });
+        if(res.ok) {
+           await fetchSystemConfig();
+           alert("Staff Matrix Saved Successfully! Live access permissions updated.");
+        } else {
+           alert("Failed to save staff.");
+        }
+      } catch(e) {
+        alert("Error communicating with MongoDB.");
+      }
+      btn.innerText = "Save Staff Updates"; btn.disabled = false;
+    }
+
+    async function createNewCohort() {
+       const newName = prompt("Enter a name for the brand new Cohort (e.g. Spring 2027):");
+       if (!newName) {
+          document.getElementById("admin-cohort-select").value = adminSelectedCohortId; 
+          return;
+       }
+       
+       try {
+         const res = await fetch(`${NODE_API_URL}/api/admin/add-cohort`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: newName })
+         });
+         const data = await res.json();
+         if (data.success) {
+            await fetchSystemConfig(); 
+            renderAdminDashboard(); 
+            setTimeout(() => {
+               document.getElementById("admin-cohort-select").value = data.cohortId;
+               loadAdminCohort(data.cohortId);
+            }, 100);
+         }
+       } catch(e) {
+         alert("Failed to create new cohort.");
+       }
+    }
+
+    function loadAdminCohort(cohortId) {
+      if (cohortId === 'NEW_COHORT') {
+         createNewCohort();
+         return;
+      }
+      if (!cohortId) {
+         adminSelectedCohortId = "";
+         document.getElementById("admin-cohort-container").innerHTML = `<div style="text-align:center; color: var(--text-muted); padding: 40px; font-weight: 600;">Select a cohort from the dropdown menu to open its enrollment matrix.</div>`;
+         return;
       }
 
+      adminSelectedCohortId = cohortId;
+      const cohort = APP_DATA.cohorts.find(c => c.id === cohortId);
+      adminCohortName = cohort.name;
+      
+      // Flatten the nested MongoDB structure into our flat pivot array
+      const studentMap = {};
+      cohort.courses.forEach(crs => {
+        crs.students.forEach(st => {
+          if (!studentMap[st.id]) {
+            studentMap[st.id] = { id: st.id, name: st.name, enrolled: [], isNew: false };
+          }
+          studentMap[st.id].enrolled.push(crs.id);
+        });
+      });
+      adminWorkingStudents = Object.values(studentMap);
+      drawCohortMatrix();
+    }
+
+    function drawCohortMatrix() {
+      const allCourseIds = Object.keys(COURSE_CATALOG);
+      
       let html = `
+        <table class="ws-table">
+          <thead>
+            <tr>
+              <th style="width: 140px;">Candidate ID</th>
+              <th style="width: 250px;">Student Full Name</th>
+              ${allCourseIds.map(id => `<th style="text-align: center; font-size: 0.7rem;" title="${COURSE_CATALOG[id].name}">${id.replace('c_', '').toUpperCase()}</th>`).join('')}
+              <th style="text-align: center;">🗑️</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      adminWorkingStudents.forEach((s, i) => {
+        // We lock the ID field for existing students to prevent "orphaning" their past attendance data
+        const idReadonly = s.isNew ? '' : 'readonly title="Student ID cannot be changed in the matrix to protect existing attendance logs." style="background-color: var(--surface-alt);"';
+        
+        html += `
+          <tr>
+            <td><input type="text" class="matrix-input" value="${s.id}" ${idReadonly} onchange="adminWorkingStudents[${i}].id = this.value"></td>
+            <td><input type="text" class="matrix-input" value="${s.name}" onchange="adminWorkingStudents[${i}].name = this.value"></td>
+            ${allCourseIds.map(courseId => `
+              <td style="text-align: center; border-left: 1px solid var(--border-light);">
+                <input type="checkbox" class="matrix-checkbox" onchange="toggleStudentCourse(${i}, '${courseId}', this.checked)" ${s.enrolled.includes(courseId) ? 'checked' : ''}>
+              </td>
+            `).join('')}
+            <td style="text-align: center;">
+              <button class="btn-remove-row" onclick="removeAdminStudent(${i})">✕</button>
+            </td>
+          </tr>
+        `;
+      });
+
+      html += `
+          </tbody>
+        </table>
+        <div style="padding: 12px 14px; background-color: var(--surface-alt);">
+          <button class="ws-btn ws-btn-outline ws-btn-sm" style="font-weight: 700;" onclick="addBlankStudent()">+ Add New Student Candidate</button>
+        </div>
+      `;
+      document.getElementById("admin-cohort-container").innerHTML = html;
+    }
+
+    function toggleStudentCourse(studentIndex, courseId, isChecked) {
+      const s = adminWorkingStudents[studentIndex];
+      if (isChecked) {
+        if (!s.enrolled.includes(courseId)) s.enrolled.push(courseId);
+      } else {
+        s.enrolled = s.enrolled.filter(id => id !== courseId);
+      }
+    }
+
+    function addBlankStudent() {
+      adminWorkingStudents.push({ id: '', name: '', enrolled: [], isNew: true });
+      drawCohortMatrix();
+    }
+
+    function removeAdminStudent(index) {
+      if(confirm("Are you sure you want to drop this student from the cohort matrix? (Note: This does not delete past attendance logs, it just removes them from the active roster).")) {
+        adminWorkingStudents.splice(index, 1);
+        drawCohortMatrix();
+      }
+    }
+
+    async function saveCohortMatrix() {
+      if (!adminSelectedCohortId) return alert("Select a cohort first.");
+      
+      const btn = document.getElementById("btn-save-cohort");
+      btn.innerText = "Saving to Atlas..."; btn.disabled = true;
+
+      // The Translation Engine: Pivot Flat Array -> Nested MongoDB Structure
+      const finalCourses = [];
+      Object.keys(COURSE_CATALOG).forEach(courseId => {
+         const studentsInCourse = adminWorkingStudents
+             .filter(s => s.enrolled.includes(courseId) && s.id.trim() !== '')
+             .map(s => ({id: s.id.trim(), name: s.name.trim()}));
+             
+         if (studentsInCourse.length > 0) {
+            finalCourses.push({
+               id: courseId,
+               name: COURSE_CATALOG[courseId].name,
+               students: studentsInCourse
+            });
+         }
+      });
+      
+      const cohortPayload = {
+         id: adminSelectedCohortId,
+         name: adminCohortName,
+         courses: finalCourses
+      };
+
+      try {
+        const res = await fetch(`${NODE_API_URL}/api/admin/save-cohort`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cohort: cohortPayload })
+        });
+        if(res.ok) {
+           await fetchSystemConfig(); 
+           alert("Academic Cohort Enrollments Saved Successfully!");
+        } else {
+           alert("Failed to save cohort data.");
+        }
+      } catch(e) {
+        alert("Error communicating with MongoDB.");
+      }
+      btn.innerText = "Save Cohort Updates"; btn.disabled = false;
+    }
+
+    // ==========================================
+    // NORMAL FRONTEND VIEWS (Below here is unchanged)
+    // ==========================================
+
+    function renderCohortsView() {
+      saveViewState("cohorts"); 
+      activeCohort = null; activeCourse = null; updateBreadcrumbs();
+
+      let gridHtml = ''; let visibleCohortsCount = 0;
+      APP_DATA.cohorts.forEach(c => {
+        const visibleCourses = c.courses.filter(crs => currentUser.role === "admin" || (currentUser.editableCourses && currentUser.editableCourses.includes(crs.id)));
+        if (visibleCourses.length > 0) {
+          visibleCohortsCount++;
+          gridHtml += `<div class="ws-card" onclick="renderCoursesView('${c.id}')"><h3>${c.name}</h3><p>${visibleCourses.length} Assigned Course Rosters</p></div>`;
+        }
+      });
+      if (visibleCohortsCount === 0) gridHtml = `<div style="padding: 20px; color: var(--text-muted);">No courses assigned to your account in any active cohorts.</div>`;
+
+      document.getElementById("app-view").innerHTML = `
         <div class="ws-panel">
           <div class="ws-panel-header">
             <h2 class="ws-panel-title">Active Academic Cohorts</h2>
             <span style="font-size: 0.8rem; color: var(--text-muted);">${visibleCohortsCount} Active Records</span>
           </div>
-          <div class="ws-panel-body">
-            <div class="ws-grid">
-              ${gridHtml}
-            </div>
-          </div>
-        </div>
-      `;
-      document.getElementById("app-view").innerHTML = html;
+          <div class="ws-panel-body"><div class="ws-grid">${gridHtml}</div></div>
+        </div>`;
     }
 
     function renderCoursesView(cohortId) {
       saveViewState("courses", cohortId); 
       activeCohort = APP_DATA.cohorts.find(c => c.id === cohortId);
-      activeCourse = null;
-      updateBreadcrumbs();
+      activeCourse = null; updateBreadcrumbs();
 
-      const visibleCourses = activeCohort.courses.filter(crs => 
-        currentUser.role === "admin" || (currentUser.editableCourses && currentUser.editableCourses.includes(crs.id))
-      );
-
-      // 1. Group courses by their Stream
+      const visibleCourses = activeCohort.courses.filter(crs => currentUser.role === "admin" || (currentUser.editableCourses && currentUser.editableCourses.includes(crs.id)));
       const streamOrder = ["Core Courses", "IT Stream", "Life Science", "Engineering Stream", "Business Stream"];
       const groupedCourses = {};
       
       visibleCourses.forEach(crs => {
-        // Look up the stream from our global catalog
         const stream = COURSE_CATALOG[crs.id]?.stream || "Other";
         if (!groupedCourses[stream]) groupedCourses[stream] = [];
         groupedCourses[stream].push(crs);
       });
 
-      // 2. Build the HTML with section headers
       let contentHtml = '';
-
       streamOrder.forEach(stream => {
         if (groupedCourses[stream] && groupedCourses[stream].length > 0) {
-          contentHtml += `
-            <div style="margin-top: 24px; margin-bottom: 16px; padding-bottom: 6px; border-bottom: 2px solid var(--border-light);">
-              <h3 style="font-size: 1.05rem; font-weight: 800; color: var(--text-main); text-transform: uppercase; letter-spacing: 0.04em;">
-                ${stream}
-              </h3>
-            </div>
-            <div class="ws-grid">
-          `;
-          
+          contentHtml += `<div style="margin-top: 24px; margin-bottom: 16px; padding-bottom: 6px; border-bottom: 2px solid var(--border-light);"><h3 style="font-size: 1.05rem; font-weight: 800; color: var(--text-main); text-transform: uppercase; letter-spacing: 0.04em;">${stream}</h3></div><div class="ws-grid">`;
           groupedCourses[stream].forEach(crs => {
             const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(crs.id);
             const accessLabel = canEdit ? "Full Roster Access" : "Read-Only Archive";
             const badgeClass = canEdit ? "ws-chip-green" : "ws-chip-blue";
-
-            contentHtml += `
-              <div class="ws-card" onclick="renderAttendanceSheet('${crs.id}')">
-                <h3>${crs.name}</h3>
-                <p>${crs.students.length} Enrolled Candidates</p>
-                <div style="margin-top: 14px;">
-                  <span class="ws-chip ${badgeClass}">${accessLabel}</span>
-                </div>
-              </div>
-            `;
+            contentHtml += `<div class="ws-card" onclick="renderAttendanceSheet('${crs.id}')"><h3>${crs.name}</h3><p>${crs.students.length} Enrolled Candidates</p><div style="margin-top: 14px;"><span class="ws-chip ${badgeClass}">${accessLabel}</span></div></div>`;
           });
-          
           contentHtml += `</div>`;
         }
       });
 
-      // 3. Assemble the final view including the Summary Table button
-      let html = `
+      document.getElementById("app-view").innerHTML = `
         <div class="ws-panel">
           <div class="ws-panel-header">
             <h2 class="ws-panel-title">${activeCohort.name} - Course Registries</h2>
             <div style="display: flex; gap: 8px;">
-              <button class="ws-btn ws-btn-primary ws-no-print" style="background-color: var(--ielts-red);" onclick="renderCohortSummary('${activeCohort.id}')">
-                <svg style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle; fill: none; stroke: currentColor; stroke-width: 2;" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>
-                Summary Table
-              </button>
+              <button class="ws-btn ws-btn-primary ws-no-print" style="background-color: var(--ielts-red);" onclick="renderCohortSummary('${activeCohort.id}')"><svg style="width: 14px; height: 14px; margin-right: 4px; vertical-align: middle; fill: none; stroke: currentColor; stroke-width: 2;" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg>Summary Table</button>
               <button class="ws-btn ws-btn-outline ws-no-print" onclick="renderCohortsView()">← Back to Cohorts</button>
             </div>
           </div>
-          <div class="ws-panel-body" style="padding-top: 4px;">
-            ${contentHtml}
-          </div>
-        </div>
-      `;
-      document.getElementById("app-view").innerHTML = html;
+          <div class="ws-panel-body" style="padding-top: 4px;">${contentHtml}</div>
+        </div>`;
     }
 
     async function renderAttendanceSheet(courseId, skipCloudSync = false) {
       saveViewState("sheet", courseId); 
-      
-      if (!skipCloudSync) {
-        await syncDatabaseFromCloud();
-      }
+      if (!skipCloudSync) await syncDatabaseFromCloud();
 
       if (!activeCohort) {
         for (const c of APP_DATA.cohorts) {
           const found = c.courses.find(x => x.id === courseId);
-          if (found) {
-            activeCohort = c;
-            activeCourse = found;
-            break;
-          }
+          if (found) { activeCohort = c; activeCourse = found; break; }
         }
       } else {
         activeCourse = activeCohort.courses.find(c => c.id === courseId);
@@ -993,19 +1242,12 @@
       
       updateBreadcrumbs();
 
-      if (!attendanceDB[courseId]) {
-        attendanceDB[courseId] = { sessions: [], records: {}, incidents: {} };
-      }
-      if (!attendanceDB[courseId].incidents) {
-        attendanceDB[courseId].incidents = {};
-      }
-      if (!attendanceDB[courseId].notes) {
-        attendanceDB[courseId].notes = {};
-      }
+      if (!attendanceDB[courseId]) attendanceDB[courseId] = { sessions: [], records: {}, incidents: {} };
+      if (!attendanceDB[courseId].incidents) attendanceDB[courseId].incidents = {};
+      if (!attendanceDB[courseId].notes) attendanceDB[courseId].notes = {};
 
       const courseRecord = attendanceDB[courseId];
       const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(courseId);
-
       courseRecord.sessions.sort((a, b) => new Date(a) - new Date(b));
 
       let html = `
@@ -1013,9 +1255,7 @@
           <div class="ws-panel-header">
             <div>
               <h2 class="ws-panel-title">${activeCourse.name}</h2>
-              <span style="font-size: 0.775rem; color: var(--text-muted);">
-                ${canEdit ? 'Authorized for Session Entries & Incident Logging' : 'Read-Only Observation State'}
-              </span>
+              <span style="font-size: 0.775rem; color: var(--text-muted);">${canEdit ? 'Authorized for Session Entries & Incident Logging' : 'Read-Only Observation State'}</span>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
               ${canEdit ? `<button class="ws-btn ws-btn-primary ws-no-print" onclick="openCalendarModal('${courseId}')">+ Add Class Date</button>` : ''}
@@ -1030,26 +1270,18 @@
                   <tr>
                     <th class="sticky-col-id">Candidate ID</th>
                     <th class="sticky-col-name">Student Full Name</th>
-                    ${
-                      courseRecord.sessions.map(s => `
-                        <th class="session-date-th ws-hide-on-summary-print">
-                          <span class="session-date-label">${formatClassDate(s)}</span>
-                          ${canEdit ? `
-                            <div class="date-action-badge ws-no-print" onclick="event.stopPropagation()">
-                              <button type="button" class="badge-icon-btn btn-quick" title="Mark Unmarked as Present" onclick="event.stopPropagation(); markAllPresent('${courseId}', '${s}')">
-                                <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-                              </button>
-                              <button type="button" class="badge-icon-btn btn-edit" title="Edit Session Date" onclick="event.stopPropagation(); openEditSessionModal('${courseId}', '${s}')">
-                                <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                              </button>
-                              <button type="button" class="badge-icon-btn btn-delete" title="Delete Session" onclick="event.stopPropagation(); deleteSession('${courseId}', '${s}')">
-                                <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                              </button>
-                            </div>
-                          ` : ''}
-                        </th>
-                      `).join('')
-                    }
+                    ${courseRecord.sessions.map(s => `
+                      <th class="session-date-th ws-hide-on-summary-print">
+                        <span class="session-date-label">${formatClassDate(s)}</span>
+                        ${canEdit ? `
+                          <div class="date-action-badge ws-no-print" onclick="event.stopPropagation()">
+                            <button type="button" class="badge-icon-btn btn-quick" title="Mark Unmarked as Present" onclick="event.stopPropagation(); markAllPresent('${courseId}', '${s}')"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></button>
+                            <button type="button" class="badge-icon-btn btn-edit" title="Edit Session Date" onclick="event.stopPropagation(); openEditSessionModal('${courseId}', '${s}')"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
+                            <button type="button" class="badge-icon-btn btn-delete" title="Delete Session" onclick="event.stopPropagation(); deleteSession('${courseId}', '${s}')"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
+                          </div>
+                        ` : ''}
+                      </th>
+                    `).join('')}
                     <th class="attendance-rate-th">Attendance %</th>
                     <th class="ws-no-print ws-hide-on-summary-print" style="text-align: center;">Actions</th>
                   </tr>
@@ -1058,31 +1290,22 @@
       `;
 
       activeCourse.students.forEach(student => {
-        if (!courseRecord.records[student.id]) {
-          courseRecord.records[student.id] = {};
-        }
+        if (!courseRecord.records[student.id]) courseRecord.records[student.id] = {};
         const sRecords = courseRecord.records[student.id];
 
-        let attendedCount = 0;
-        let markedSessionsCount = 0;
-
+        let attendedCount = 0; let markedSessionsCount = 0;
         courseRecord.sessions.forEach(sessionDate => {
           const status = sRecords[sessionDate] || "";
           if (status !== "") {
             markedSessionsCount++;
-            if (status === "Present" || status === "Late" || status === "Joined online") {
-              attendedCount++;
-            }
+            if (status === "Present" || status === "Late" || status === "Joined online") attendedCount++;
           }
         });
 
-        let rateText = "N/A";
-        let rateChip = "ws-chip-gray";
-        
+        let rateText = "N/A"; let rateChip = "ws-chip-gray";
         if (markedSessionsCount > 0) {
           const rate = Math.round((attendedCount / markedSessionsCount) * 100);
-          rateText = rate + "%";
-          rateChip = "ws-chip-green";
+          rateText = rate + "%"; rateChip = "ws-chip-green";
           if (rate < 50) rateChip = "ws-chip-red";
           else if (rate < 75) rateChip = "ws-chip-amber";
         }
@@ -1090,13 +1313,9 @@
         html += `
           <tr>
             <td class="sticky-col-id" style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">${student.id}</td>
-            <td class="sticky-col-name">
-              <strong>${student.name}</strong>
-            </td>
-            ${
-              courseRecord.sessions.map(sessionDate => {
+            <td class="sticky-col-name"><strong>${student.name}</strong></td>
+            ${courseRecord.sessions.map(sessionDate => {
                 const currentVal = sRecords[sessionDate] || "";
-                
                 let selectClass = "ws-select";
                 if (currentVal === "Present") selectClass += " status-present";
                 else if (currentVal === "Late") selectClass += " status-late";
@@ -1113,9 +1332,7 @@
                   <td class="session-date-cell ws-hide-on-summary-print">
                     <div class="cell-wrapper" ${tooltipStr} oncontextmenu="event.preventDefault(); openQuickNoteModal('${courseId}', '${student.id}', '${sessionDate}');">
                       ${dogEarHtml}
-                      <select class="${selectClass}" 
-                        ${!canEdit ? 'disabled' : ''} 
-                        onchange="updateStatus('${courseId}', '${student.id}', '${sessionDate}', this.value)">
+                      <select class="${selectClass}" ${!canEdit ? 'disabled' : ''} onchange="updateStatus('${courseId}', '${student.id}', '${sessionDate}', this.value)">
                         <option value="" ${currentVal === '' ? 'selected' : ''}>Choose one</option>
                         <option value="Present" ${currentVal === 'Present' ? 'selected' : ''}>Present</option>
                         <option value="Absent" ${currentVal === 'Absent' ? 'selected' : ''}>Absent</option>
@@ -1124,93 +1341,50 @@
                         <option value="Absent Informed" ${currentVal === 'Absent Informed' ? 'selected' : ''}>Absent Informed</option>
                       </select>
                     </div>
-                  </td>
-                `;
-              }).join('')            }
-           <td class="attendance-rate-cell">
-              <span class="ws-chip ${rateChip}">${rateText}</span>
-            </td>
-            <td class="ws-no-print ws-hide-on-summary-print" style="text-align: center;">
-              <button class="ws-btn ws-btn-outline ws-btn-sm" onclick="openStudentReport('${courseId}', '${student.id}')">
-                Individual Report
-              </button>
-            </td>
-          </tr>
-        `;
+                  </td>`;
+              }).join('')}
+           <td class="attendance-rate-cell"><span class="ws-chip ${rateChip}">${rateText}</span></td>
+            <td class="ws-no-print ws-hide-on-summary-print" style="text-align: center;"><button class="ws-btn ws-btn-outline ws-btn-sm" onclick="openStudentReport('${courseId}', '${student.id}')">Individual Report</button></td>
+          </tr>`;
       });
-
-      html += `
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      `;
-
+      html += `</tbody></table></div></div></div>`;
       document.getElementById("app-view").innerHTML = html;
     }
 
     function openCalendarModal(courseId) {
-      currentModalCourseId = courseId;
-      currentEditingDate = null;
+      currentModalCourseId = courseId; currentEditingDate = null;
       document.getElementById("calendar-modal-title").innerText = "Schedule New Class Session";
       document.getElementById("calendar-modal-desc").innerText = "Pick a class date from the calendar. Columns will be ordered chronologically.";
       document.getElementById("calendar-submit-btn").innerText = "Create Session";
-      
-      const today = new Date().toISOString().split('T')[0];
-      const dateInput = document.getElementById("calendar-date-input");
-      dateInput.value = today;
+      document.getElementById("calendar-date-input").value = new Date().toISOString().split('T')[0];
       document.getElementById("calendar-error").style.display = "none";
       document.getElementById("calendar-modal").style.display = "flex";
     }
 
     function openEditSessionModal(courseId, oldDate) {
-      currentModalCourseId = courseId;
-      currentEditingDate = oldDate;
+      currentModalCourseId = courseId; currentEditingDate = oldDate;
       document.getElementById("calendar-modal-title").innerText = "Edit Class Session Date";
       document.getElementById("calendar-modal-desc").innerText = `Updating class date from ${formatClassDate(oldDate)}. Existing student attendance records will be preserved.`;
       document.getElementById("calendar-submit-btn").innerText = "Update Date";
-
-      const dateInput = document.getElementById("calendar-date-input");
-      dateInput.value = oldDate;
+      document.getElementById("calendar-date-input").value = oldDate;
       document.getElementById("calendar-error").style.display = "none";
       document.getElementById("calendar-modal").style.display = "flex";
     }
 
-    function closeCalendarModal() {
-      document.getElementById("calendar-modal").style.display = "none";
-      currentModalCourseId = null;
-      currentEditingDate = null;
-    }
+    function closeCalendarModal() { document.getElementById("calendar-modal").style.display = "none"; currentModalCourseId = null; currentEditingDate = null; }
 
     function confirmSessionDateAction() {
       const selectedDate = document.getElementById("calendar-date-input").value;
       const errEl = document.getElementById("calendar-error");
       const targetCourseId = currentModalCourseId;
-      
-      if (!selectedDate) {
-        errEl.innerText = "Please choose a valid date from the calendar.";
-        errEl.style.display = "block";
-        return;
-      }
-
-      if (!attendanceDB[targetCourseId]) {
-        attendanceDB[targetCourseId] = { sessions: [], records: {}, incidents: {} };
-      }
+      if (!selectedDate) { errEl.innerText = "Please choose a valid date from the calendar."; errEl.style.display = "block"; return; }
+      if (!attendanceDB[targetCourseId]) attendanceDB[targetCourseId] = { sessions: [], records: {}, incidents: {} };
       const courseRecord = attendanceDB[targetCourseId];
 
       if (currentEditingDate) {
-        if (selectedDate !== currentEditingDate && courseRecord.sessions.includes(selectedDate)) {
-          errEl.innerText = `A class session already exists for ${formatClassDate(selectedDate)}.`;
-          errEl.style.display = "block";
-          return;
-        }
-
+        if (selectedDate !== currentEditingDate && courseRecord.sessions.includes(selectedDate)) { errEl.innerText = `A class session already exists for ${formatClassDate(selectedDate)}.`; errEl.style.display = "block"; return; }
         const idx = courseRecord.sessions.indexOf(currentEditingDate);
-        if (idx !== -1) {
-          courseRecord.sessions[idx] = selectedDate;
-        }
-
+        if (idx !== -1) courseRecord.sessions[idx] = selectedDate;
         Object.keys(courseRecord.records).forEach(stId => {
           if (courseRecord.records[stId][currentEditingDate] !== undefined) {
             courseRecord.records[stId][selectedDate] = courseRecord.records[stId][currentEditingDate];
@@ -1218,89 +1392,52 @@
           }
         });
       } else {
-        if (courseRecord.sessions.includes(selectedDate)) {
-          errEl.innerText = `A class session already exists for ${formatClassDate(selectedDate)}.`;
-          errEl.style.display = "block";
-          return;
-        }
-
+        if (courseRecord.sessions.includes(selectedDate)) { errEl.innerText = `A class session already exists for ${formatClassDate(selectedDate)}.`; errEl.style.display = "block"; return; }
         courseRecord.sessions.push(selectedDate);
-
         let studentList = [];
-        if (activeCourse && activeCourse.id === targetCourseId) {
-          studentList = activeCourse.students;
-        } else {
+        if (activeCourse && activeCourse.id === targetCourseId) studentList = activeCourse.students;
+        else {
           for (const cohort of APP_DATA.cohorts) {
             const match = cohort.courses.find(c => c.id === targetCourseId);
-            if (match) {
-              studentList = match.students;
-              break;
-            }
+            if (match) { studentList = match.students; break; }
           }
         }
-
         studentList.forEach(st => {
           if (!courseRecord.records[st.id]) courseRecord.records[st.id] = {};
-          if (courseRecord.records[st.id][selectedDate] === undefined) {
-            courseRecord.records[st.id][selectedDate] = "";
-          }
+          if (courseRecord.records[st.id][selectedDate] === undefined) courseRecord.records[st.id][selectedDate] = "";
         });
       }
 
       courseRecord.sessions.sort((a, b) => new Date(a) - new Date(b));
-      
-      saveAttendanceDBLocally();
-      dispatchCloudMutation(targetCourseId);
-      closeCalendarModal();
-      renderAttendanceSheet(targetCourseId, true);
+      saveAttendanceDBLocally(); dispatchCloudMutation(targetCourseId); closeCalendarModal(); renderAttendanceSheet(targetCourseId, true);
     }
 
     function deleteSession(courseId, sessionDate) {
-      const confirmDelete = confirm(`Are you sure you want to delete the class session on ${formatClassDate(sessionDate)}? All recorded attendance for this date will be permanently cleared.`);
-      if (!confirmDelete) return;
-
+      if (!confirm(`Are you sure you want to delete the class session on ${formatClassDate(sessionDate)}? All recorded attendance for this date will be permanently cleared.`)) return;
       const courseRecord = attendanceDB[courseId];
       if (!courseRecord) return;
-
       courseRecord.sessions = courseRecord.sessions.filter(d => d !== sessionDate);
-      Object.keys(courseRecord.records).forEach(stId => {
-        delete courseRecord.records[stId][sessionDate];
-      });
-
-      saveAttendanceDBLocally();
-      dispatchCloudMutation(courseId);
-      renderAttendanceSheet(courseId, true);
+      Object.keys(courseRecord.records).forEach(stId => delete courseRecord.records[stId][sessionDate]);
+      saveAttendanceDBLocally(); dispatchCloudMutation(courseId); renderAttendanceSheet(courseId, true);
     }
 
     function updateStatus(courseId, studentId, sessionDate, newStatus) {
-      if (!attendanceDB[courseId].records[studentId]) {
-        attendanceDB[courseId].records[studentId] = {};
-      }
+      if (!attendanceDB[courseId].records[studentId]) attendanceDB[courseId].records[studentId] = {};
       attendanceDB[courseId].records[studentId][sessionDate] = newStatus;
-
-      saveAttendanceDBLocally();
-      dispatchCloudMutation(courseId);
-      renderAttendanceSheet(courseId, true);
+      saveAttendanceDBLocally(); dispatchCloudMutation(courseId); renderAttendanceSheet(courseId, true);
     }
 
     function openIncidentModal(courseId) {
       currentModalCourseId = courseId;
       const course = activeCohort.courses.find(c => c.id === courseId);
-      
-      const selectEl = document.getElementById("incident-student-select");
-      selectEl.innerHTML = course.students.map(s => `<option value="${s.id}">${s.name} (${s.id})</option>`).join("");
-
-      const today = new Date().toISOString().split('T')[0];
-      document.getElementById("incident-date-input").value = today;
+      document.getElementById("incident-student-select").innerHTML = course.students.map(s => `<option value="${s.id}">${s.name} (${s.id})</option>`).join("");
+      document.getElementById("incident-date-input").value = new Date().toISOString().split('T')[0];
       document.getElementById("incident-notes-input").value = "";
       document.getElementById("incident-error").style.display = "none";
       document.getElementById("incident-modal").style.display = "flex";
     }
 
-    function closeIncidentModal() {
-      document.getElementById("incident-modal").style.display = "none";
-      currentModalCourseId = null;
-    }
+    function closeIncidentModal() { document.getElementById("incident-modal").style.display = "none"; currentModalCourseId = null; }
 
     function confirmSaveIncident() {
       const studentId = document.getElementById("incident-student-select").value;
@@ -1309,74 +1446,41 @@
       const notes = document.getElementById("incident-notes-input").value.trim();
       const errEl = document.getElementById("incident-error");
 
-      if (!date) {
-        errEl.innerText = "Please specify the date of the incident.";
-        errEl.style.display = "block";
-        return;
-      }
-      if (!notes) {
-        errEl.innerText = "Please enter documentation notes explaining the incident.";
-        errEl.style.display = "block";
-        return;
-      }
+      if (!date || !notes) { errEl.innerText = "Please specify the date and notes."; errEl.style.display = "block"; return; }
 
       const courseRecord = attendanceDB[currentModalCourseId];
       if (!courseRecord.incidents) courseRecord.incidents = {};
       if (!courseRecord.incidents[studentId]) courseRecord.incidents[studentId] = [];
 
       courseRecord.incidents[studentId].push({
-        id: "INC-" + Date.now(),
-        date: date,
-        category: category,
-        notes: notes,
-        recordedBy: currentUser ? currentUser.name : "Instructor",
-        timestamp: new Date().toISOString()
+        id: "INC-" + Date.now(), date: date, category: category, notes: notes,
+        recordedBy: currentUser ? currentUser.name : "Instructor", timestamp: new Date().toISOString()
       });
 
-      saveAttendanceDBLocally();
-      dispatchCloudMutation(currentModalCourseId);
-      closeIncidentModal();
-      renderAttendanceSheet(currentModalCourseId, true);
+      saveAttendanceDBLocally(); dispatchCloudMutation(currentModalCourseId); closeIncidentModal(); renderAttendanceSheet(currentModalCourseId, true);
     }
 
     function deleteIncidentRecord(courseId, studentId, incidentId) {
       if (!confirm("Are you sure you want to permanently delete this logged incident?")) return;
-      
       const courseRecord = attendanceDB[courseId];
       if (courseRecord && courseRecord.incidents && courseRecord.incidents[studentId]) {
         courseRecord.incidents[studentId] = courseRecord.incidents[studentId].filter(x => x.id !== incidentId);
-
-        saveAttendanceDBLocally();
-        dispatchCloudMutation(courseId);
-        openStudentReport(courseId, studentId);
-        renderAttendanceSheet(courseId, true);
+        saveAttendanceDBLocally(); dispatchCloudMutation(courseId); openStudentReport(courseId, studentId); renderAttendanceSheet(courseId, true);
       }
     }
 
     function openStudentReport(courseId, studentId) {
-      let course = null;
-      let cohort = null;
+      let course = null; let cohort = null;
       for (const c of APP_DATA.cohorts) {
         const found = c.courses.find(x => x.id === courseId);
-        if (found) {
-          cohort = c;
-          course = found;
-          break;
-        }
+        if (found) { cohort = c; course = found; break; }
       }
-
       const student = course.students.find(s => s.id === studentId);
       const courseRecord = attendanceDB[courseId] || { sessions: [], records: {}, incidents: {} };
       const sRecords = courseRecord.records[studentId] || {};
       const sIncidents = (courseRecord.incidents && courseRecord.incidents[studentId]) || [];
 
-      let presentCount = 0;
-      let lateCount = 0;
-      let onlineCount = 0;
-      let informedCount = 0;
-      let absentCount = 0;
-      let markedCount = 0;
-
+      let presentCount = 0; let lateCount = 0; let onlineCount = 0; let informedCount = 0; let absentCount = 0; let markedCount = 0;
       courseRecord.sessions.forEach(d => {
         const status = sRecords[d] || "";
         if (status !== "") {
@@ -1391,338 +1495,156 @@
 
       const totalSessions = courseRecord.sessions.length;
       const attendedSessions = presentCount + lateCount + onlineCount;
-      
-      let rateText = "N/A";
-      let rateColor = "var(--text-muted)";
-      
+      let rateText = "N/A"; let rateColor = "var(--text-muted)";
       if (markedCount > 0) {
         const rate = Math.round((attendedSessions / markedCount) * 100);
-        rateText = rate + "%";
-        rateColor = "var(--status-green-text)";
+        rateText = rate + "%"; rateColor = "var(--status-green-text)";
         if (rate < 50) rateColor = "var(--status-red-text)";
         else if (rate < 75) rateColor = "var(--status-amber-text)";
       }
-
       const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(courseId);
 
       let reportHTML = `
         <div class="dossier-card">
           <div style="border-bottom: 2px solid var(--ielts-border); padding-bottom: 12px; margin-bottom: 14px; display: flex; justify-content: space-between;">
-            <div>
-              <h3 style="font-size: 1.15rem; color: var(--text-dark);">${student.name}</h3>
-              <p style="color: var(--text-muted); font-size: 0.85rem;">Candidate ID: <strong style="font-family: monospace;">${student.id}</strong></p>
-            </div>
-            <div style="text-align: right;">
-              <p style="font-size: 0.85rem; font-weight: 600; color: var(--text-dark);">${course.name}</p>
-              <p style="font-size: 0.775rem; color: var(--text-muted);">${cohort.name}</p>
-            </div>
+            <div><h3 style="font-size: 1.15rem; color: var(--text-dark);">${student.name}</h3><p style="color: var(--text-muted); font-size: 0.85rem;">Candidate ID: <strong style="font-family: monospace;">${student.id}</strong></p></div>
+            <div style="text-align: right;"><p style="font-size: 0.85rem; font-weight: 600; color: var(--text-dark);">${course.name}</p><p style="font-size: 0.775rem; color: var(--text-muted);">${cohort.name}</p></div>
           </div>
-
           <div class="dossier-stats-grid">
-            <div class="dossier-stat-box">
-              <div class="dossier-stat-num">${totalSessions}</div>
-              <div class="dossier-stat-lbl">Total Classes</div>
-            </div>
-            <div class="dossier-stat-box">
-              <div class="dossier-stat-num" style="color: var(--status-green-text);">${presentCount}</div>
-              <div class="dossier-stat-lbl">Present</div>
-            </div>
-            <div class="dossier-stat-box">
-              <div class="dossier-stat-num" style="color: var(--status-amber-text);">${lateCount}</div>
-              <div class="dossier-stat-lbl">Late</div>
-            </div>
-            <div class="dossier-stat-box">
-              <div class="dossier-stat-num" style="color: var(--status-blue-text);">${onlineCount}</div>
-              <div class="dossier-stat-lbl">Joined Online</div>
-            </div>
-            <div class="dossier-stat-box">
-              <div class="dossier-stat-num" style="color: var(--status-amber-text);">${informedCount}</div>
-              <div class="dossier-stat-lbl">Informed Absence</div>
-            </div>
-            <div class="dossier-stat-box">
-              <div class="dossier-stat-num" style="color: var(--status-red-text);">${absentCount}</div>
-              <div class="dossier-stat-lbl">Unexcused Absent</div>
-            </div>
+            <div class="dossier-stat-box"><div class="dossier-stat-num">${totalSessions}</div><div class="dossier-stat-lbl">Total Classes</div></div>
+            <div class="dossier-stat-box"><div class="dossier-stat-num" style="color: var(--status-green-text);">${presentCount}</div><div class="dossier-stat-lbl">Present</div></div>
+            <div class="dossier-stat-box"><div class="dossier-stat-num" style="color: var(--status-amber-text);">${lateCount}</div><div class="dossier-stat-lbl">Late</div></div>
+            <div class="dossier-stat-box"><div class="dossier-stat-num" style="color: var(--status-blue-text);">${onlineCount}</div><div class="dossier-stat-lbl">Joined Online</div></div>
+            <div class="dossier-stat-box"><div class="dossier-stat-num" style="color: var(--status-amber-text);">${informedCount}</div><div class="dossier-stat-lbl">Informed Absence</div></div>
+            <div class="dossier-stat-box"><div class="dossier-stat-num" style="color: var(--status-red-text);">${absentCount}</div><div class="dossier-stat-lbl">Unexcused Absent</div></div>
           </div>
-
           <div style="background: var(--surface-alt); padding: 16px 20px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border-light); margin-bottom: 20px;">
-            <span style="font-weight: 700; font-size: 0.95rem; text-transform: uppercase; color: var(--text-muted);">Aggregate Attendance Performance</span>
-            <span style="font-size: 1.8rem; font-weight: 800; color: ${rateColor};">${rateText}</span>
+            <span style="font-weight: 700; font-size: 0.95rem; text-transform: uppercase; color: var(--text-muted);">Aggregate Attendance Performance</span><span style="font-size: 1.8rem; font-weight: 800; color: ${rateColor};">${rateText}</span>
           </div>
-
-          <div>
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid var(--border-light); padding-bottom: 6px;">
-              <h4 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">Candidate Incident Registry (${sIncidents.length})</h4>
-            </div>
-      `;
+          <div><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid var(--border-light); padding-bottom: 6px;"><h4 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted);">Candidate Incident Registry (${sIncidents.length})</h4></div>`;
 
       if (sIncidents.length === 0) {
-        reportHTML += `
-          <div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 0.85rem; background: var(--surface-alt); border-radius: 4px; border: 1px solid var(--border-light);">
-            No behavioral, disciplinary, or medical incidents filed for this candidate.
-          </div>
-        `;
+        reportHTML += `<div style="padding: 16px; text-align: center; color: var(--text-muted); font-size: 0.85rem; background: var(--surface-alt); border-radius: 4px; border: 1px solid var(--border-light);">No behavioral, disciplinary, or medical incidents filed for this candidate.</div>`;
       } else {
         const sortedIncidents = [...sIncidents].sort((a, b) => new Date(b.date) - new Date(a.date));
-
         sortedIncidents.forEach(inc => {
           reportHTML += `
             <div class="incident-log-item">
               <div class="incident-log-header">
-                <div>
-                  <span class="ws-chip ws-chip-amber" style="margin-right: 8px;">${inc.category}</span>
-                  <strong style="font-size: 0.85rem; color: var(--text-dark);">${formatClassDate(inc.date)}</strong>
-                </div>
-                <div style="display: flex; align-items: center; gap: 8px;">
-                  <span style="font-size: 0.75rem; color: var(--text-muted);">Logged by: ${inc.recordedBy}</span>
-                  ${canEdit ? `
-                    <button class="ws-no-print" title="Delete incident" style="background:none; border:none; color:var(--text-light); cursor:pointer; font-size:0.9rem;" onmouseover="this.style.color='var(--status-red-text)'" onmouseout="this.style.color='var(--text-light)'" onclick="deleteIncidentRecord('${courseId}', '${student.id}', '${inc.id}')">✕</button>
-                  ` : ''}
+                <div><span class="ws-chip ws-chip-amber" style="margin-right: 8px;">${inc.category}</span><strong style="font-size: 0.85rem; color: var(--text-dark);">${formatClassDate(inc.date)}</strong></div>
+                <div style="display: flex; align-items: center; gap: 8px;"><span style="font-size: 0.75rem; color: var(--text-muted);">Logged by: ${inc.recordedBy}</span>
+                  ${canEdit ? `<button class="ws-no-print" title="Delete incident" style="background:none; border:none; color:var(--text-light); cursor:pointer; font-size:0.9rem;" onmouseover="this.style.color='var(--status-red-text)'" onmouseout="this.style.color='var(--text-light)'" onclick="deleteIncidentRecord('${courseId}', '${student.id}', '${inc.id}')">✕</button>` : ''}
                 </div>
               </div>
               <p style="font-size: 0.85rem; color: var(--text-main); margin-top: 6px; white-space: pre-wrap; line-height: 1.4;">${inc.notes}</p>
-            </div>
-          `;
+            </div>`;
         });
       }
-
-      reportHTML += `
-          </div>
-        </div>
-      `;
-
+      reportHTML += `</div></div>`;
       document.getElementById("student-report-content").innerHTML = reportHTML;
       document.getElementById("student-report-modal").style.display = "flex";
     }
 
-    function closeStudentReportModal() {
-      document.getElementById("student-report-modal").style.display = "none";
-    }
-
+    function closeStudentReportModal() { document.getElementById("student-report-modal").style.display = "none"; }
     function printIndividualDossier() {
-      document.body.classList.add("printing-individual-dossier");
-      window.print();
-      window.onafterprint = () => {
-        document.body.classList.remove("printing-individual-dossier");
-      };
+      document.body.classList.add("printing-individual-dossier"); window.print();
+      window.onafterprint = () => { document.body.classList.remove("printing-individual-dossier"); };
     }
 
     function markAllPresent(courseId, sessionDate) {
       const courseRecord = attendanceDB[courseId];
       if (!courseRecord || !activeCourse) return;
-
       let updatedCount = 0;
-
       activeCourse.students.forEach(student => {
-        if (!courseRecord.records[student.id]) {
-          courseRecord.records[student.id] = {};
-        }
-        
+        if (!courseRecord.records[student.id]) courseRecord.records[student.id] = {};
         const currentStatus = courseRecord.records[student.id][sessionDate];
         if (!currentStatus || currentStatus === "") {
-          courseRecord.records[student.id][sessionDate] = "Present";
-          updatedCount++;
+          courseRecord.records[student.id][sessionDate] = "Present"; updatedCount++;
         }
       });
-
-      if (updatedCount > 0) {
-        saveAttendanceDBLocally();
-        dispatchCloudMutation(courseId);
-        renderAttendanceSheet(courseId, true);
-      }
+      if (updatedCount > 0) { saveAttendanceDBLocally(); dispatchCloudMutation(courseId); renderAttendanceSheet(courseId, true); }
     }
 
     function openQuickNoteModal(courseId, studentId, sessionDate) {
       const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(courseId);
       if (!canEdit) return false;
-
       currentNoteContext = { courseId, studentId, sessionDate };
       const courseRecord = attendanceDB[courseId];
-      
       let existingNote = "";
-      if (courseRecord.notes && courseRecord.notes[studentId] && courseRecord.notes[studentId][sessionDate]) {
-        existingNote = courseRecord.notes[studentId][sessionDate];
-      }
-
+      if (courseRecord.notes && courseRecord.notes[studentId] && courseRecord.notes[studentId][sessionDate]) existingNote = courseRecord.notes[studentId][sessionDate];
       document.getElementById("quick-note-input").value = existingNote;
       document.getElementById("btn-delete-note").style.display = existingNote ? "block" : "none";
       document.getElementById("quick-note-modal").style.display = "flex";
       document.getElementById("quick-note-input").focus();
     }
 
-    function closeQuickNoteModal() {
-      document.getElementById("quick-note-modal").style.display = "none";
-      currentNoteContext = { courseId: null, studentId: null, sessionDate: null };
-    }
+    function closeQuickNoteModal() { document.getElementById("quick-note-modal").style.display = "none"; currentNoteContext = { courseId: null, studentId: null, sessionDate: null }; }
 
     function saveQuickNote() {
       const { courseId, studentId, sessionDate } = currentNoteContext;
       if (!courseId) return;
-
       const noteText = document.getElementById("quick-note-input").value.trim();
       const courseRecord = attendanceDB[courseId];
-      
       if (!courseRecord.notes) courseRecord.notes = {};
       if (!courseRecord.notes[studentId]) courseRecord.notes[studentId] = {};
-
-      if (noteText === "") {
-         delete courseRecord.notes[studentId][sessionDate];
-      } else {
-         courseRecord.notes[studentId][sessionDate] = noteText;
-      }
-
-      saveAttendanceDBLocally();
-      dispatchCloudMutation(courseId);
-      closeQuickNoteModal();
-      renderAttendanceSheet(courseId, true);
+      if (noteText === "") delete courseRecord.notes[studentId][sessionDate];
+      else courseRecord.notes[studentId][sessionDate] = noteText;
+      saveAttendanceDBLocally(); dispatchCloudMutation(courseId); closeQuickNoteModal(); renderAttendanceSheet(courseId, true);
     }
-
-    function deleteQuickNote() {
-      document.getElementById("quick-note-input").value = "";
-      saveQuickNote(); 
-    }
+    function deleteQuickNote() { document.getElementById("quick-note-input").value = ""; saveQuickNote(); }
 
     async function renderCohortSummary(cohortId) {
       saveViewState("summary", cohortId);
-      
       await syncDatabaseFromCloud();
+      activeCohort = APP_DATA.cohorts.find(c => c.id === cohortId); activeCourse = null;
       
-      activeCohort = APP_DATA.cohorts.find(c => c.id === cohortId);
-      activeCourse = null;
-      
-      const el = document.getElementById("breadcrumbs");
-      el.innerHTML = `
-        <span class="actionable" onclick="renderCohortsView()">Cohorts</span>
-        <span class="divider">/</span> 
-        <span class="actionable" onclick="renderCoursesView('${activeCohort.id}')">${activeCohort.name}</span>
-        <span class="divider">/</span> 
-        <span>Master Summary</span>
-      `;
+      document.getElementById("breadcrumbs").innerHTML = `<span class="actionable" onclick="renderCohortsView()">Cohorts</span><span class="divider">/</span><span class="actionable" onclick="renderCoursesView('${activeCohort.id}')">${activeCohort.name}</span><span class="divider">/</span><span>Master Summary</span>`;
 
-      const studentMasterList = {};
-      const allCohortCourses = activeCohort.courses;
-
+      const studentMasterList = {}; const allCohortCourses = activeCohort.courses;
       allCohortCourses.forEach(course => {
         const courseRecord = attendanceDB[course.id] || { sessions: [], records: {} };
-        
         course.students.forEach(student => {
-          if (!studentMasterList[student.id]) {
-            studentMasterList[student.id] = { name: student.name, id: student.id, courseRates: {} };
-          }
-          
+          if (!studentMasterList[student.id]) studentMasterList[student.id] = { name: student.name, id: student.id, courseRates: {} };
           const sRecords = courseRecord.records[student.id] || {};
-          let attendedCount = 0;
-          let markedCount = 0;
-          
+          let attendedCount = 0; let markedCount = 0;
           courseRecord.sessions.forEach(date => {
             const status = sRecords[date] || "";
-            if (status !== "") {
-              markedCount++;
-              if (status === "Present" || status === "Late" || status === "Joined online") {
-                attendedCount++;
-              }
-            }
+            if (status !== "") { markedCount++; if (status === "Present" || status === "Late" || status === "Joined online") attendedCount++; }
           });
-
-          if (markedCount > 0) {
-            studentMasterList[student.id].courseRates[course.id] = Math.round((attendedCount / markedCount) * 100);
-          } else {
-            studentMasterList[student.id].courseRates[course.id] = "N/A";
-          }
+          if (markedCount > 0) studentMasterList[student.id].courseRates[course.id] = Math.round((attendedCount / markedCount) * 100);
+          else studentMasterList[student.id].courseRates[course.id] = "N/A";
         });
       });
 
       const studentArray = Object.values(studentMasterList).sort((a, b) => a.name.localeCompare(b.name));
 
-      let html = `
-        <div class="ws-panel">
-          <div class="ws-panel-header">
-            <div>
-              <h2 class="ws-panel-title">${activeCohort.name} - Institutional Summary</h2>
-              <span style="font-size: 0.775rem; color: var(--text-muted);">Aggregated cross-course attendance metrics</span>
-            </div>
-            <div style="display: flex; gap: 8px;">
-              <button class="ws-btn ws-btn-outline ws-no-print" onclick="window.print()">Print Report</button>
-              <button class="ws-btn ws-btn-outline ws-no-print" onclick="renderCoursesView('${activeCohort.id}')">← Back</button>
-            </div>
-          </div>
-          <div class="ws-panel-body" style="padding: 0;">
-            <div class="ws-table-container">
-              <table class="ws-table">
-                <thead>
-                  <tr>
-                    <th class="sticky-col-id">ID</th>
-                    <th class="sticky-col-name">Candidate Name</th>
-                    ${allCohortCourses.map(c => `
-                      <th style="text-align: center;" title="${c.name}">
-                        <div style="font-size: 0.7rem; color: var(--text-light); font-weight: 500;">${COURSE_CATALOG[c.id]?.stream || "Course"}</div>
-                        ${c.id.replace('c_', '').toUpperCase()}
-                      </th>
-                    `).join('')}
-                    <th style="text-align: center; background-color: var(--ielts-red-soft); color: var(--text-dark); border-left: 2px solid var(--ielts-border);">OVERALL AVG</th>
-                  </tr>
-                </thead>
-                <tbody>
-      `;
+      let html = `<div class="ws-panel"><div class="ws-panel-header"><div><h2 class="ws-panel-title">${activeCohort.name} - Institutional Summary</h2><span style="font-size: 0.775rem; color: var(--text-muted);">Aggregated cross-course attendance metrics</span></div><div style="display: flex; gap: 8px;"><button class="ws-btn ws-btn-outline ws-no-print" onclick="window.print()">Print Report</button><button class="ws-btn ws-btn-outline ws-no-print" onclick="renderCoursesView('${activeCohort.id}')">← Back</button></div></div><div class="ws-panel-body" style="padding: 0;"><div class="ws-table-container"><table class="ws-table"><thead><tr><th class="sticky-col-id">ID</th><th class="sticky-col-name">Candidate Name</th>${allCohortCourses.map(c => `<th style="text-align: center;" title="${c.name}"><div style="font-size: 0.7rem; color: var(--text-light); font-weight: 500;">${COURSE_CATALOG[c.id]?.stream || "Course"}</div>${c.id.replace('c_', '').toUpperCase()}</th>`).join('')}<th style="text-align: center; background-color: var(--ielts-red-soft); color: var(--text-dark); border-left: 2px solid var(--ielts-border);">OVERALL AVG</th></tr></thead><tbody>`;
 
       studentArray.forEach(student => {
-        let validCourseCount = 0;
-        let totalValidPercentage = 0;
-
-        let rowHtml = `
-          <tr>
-            <td class="sticky-col-id" style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">${student.id}</td>
-            <td class="sticky-col-name"><strong>${student.name}</strong></td>
-        `;
-
+        let validCourseCount = 0; let totalValidPercentage = 0;
+        let rowHtml = `<tr><td class="sticky-col-id" style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">${student.id}</td><td class="sticky-col-name"><strong>${student.name}</strong></td>`;
         allCohortCourses.forEach(course => {
           const rate = student.courseRates[course.id];
-          
-          if (rate === undefined) {
-             rowHtml += `<td style="text-align: center; color: var(--border-subtle); font-size: 0.75rem;">-</td>`;
-          } else if (rate === "N/A") {
-             rowHtml += `<td style="text-align: center;"><span class="ws-chip ws-chip-gray" style="font-size: 0.7rem; padding: 2px 6px;">N/A</span></td>`;
-          } else {
-             validCourseCount++;
-             totalValidPercentage += rate;
-             
+          if (rate === undefined) rowHtml += `<td style="text-align: center; color: var(--border-subtle); font-size: 0.75rem;">-</td>`;
+          else if (rate === "N/A") rowHtml += `<td style="text-align: center;"><span class="ws-chip ws-chip-gray" style="font-size: 0.7rem; padding: 2px 6px;">N/A</span></td>`;
+          else {
+             validCourseCount++; totalValidPercentage += rate;
              let rateColor = "var(--status-green-text)";
              if (rate < 50) rateColor = "var(--status-red-text)";
              else if (rate < 75) rateColor = "var(--status-amber-text)";
-             
              rowHtml += `<td style="text-align: center; font-weight: 600; color: ${rateColor};">${rate}%</td>`;
           }
         });
-
-        let overallText = "N/A";
-        let overallChip = "ws-chip-gray";
-        
+        let overallText = "N/A"; let overallChip = "ws-chip-gray";
         if (validCourseCount > 0) {
           const overallRate = Math.round(totalValidPercentage / validCourseCount);
-          overallText = overallRate + "%";
-          overallChip = "ws-chip-green";
-          if (overallRate < 50) overallChip = "ws-chip-red";
-          else if (overallRate < 75) overallChip = "ws-chip-amber";
+          overallText = overallRate + "%"; overallChip = "ws-chip-green";
+          if (overallRate < 50) overallChip = "ws-chip-red"; else if (overallRate < 75) overallChip = "ws-chip-amber";
         }
-
-        rowHtml += `
-            <td style="text-align: center; border-left: 2px solid var(--ielts-border); background-color: var(--surface-alt);">
-              <span class="ws-chip ${overallChip}" style="font-size: 0.85rem;">${overallText}</span>
-            </td>
-          </tr>
-        `;
-        
+        rowHtml += `<td style="text-align: center; border-left: 2px solid var(--ielts-border); background-color: var(--surface-alt);"><span class="ws-chip ${overallChip}" style="font-size: 0.85rem;">${overallText}</span></td></tr>`;
         html += rowHtml;
       });
-
-      html += `
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      `;
-
+      html += `</tbody></table></div></div></div>`;
       document.getElementById("app-view").innerHTML = html;
     }
   </script>
