@@ -5,8 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Compass Attendance System 2.2.1</title>
   
-  <!-- DATA FILES REMOVED: Now securely fetching from MongoDB Atlas -->
-
   <style>
     :root {
       --ielts-red: #d32f2f;
@@ -249,7 +247,7 @@
     .ws-select.status-informed { background-color: #fee2e2; color: #991b1b; border-color: #fecaca; font-weight: 700; }
     .ws-select.status-absent { background-color: var(--status-red-bg); color: var(--status-red-text); border-color: var(--status-red-border); font-weight: 700; }
 
-  /* QUICK NOTES (DOG-EAR) STYLES */
+    /* QUICK NOTES (DOG-EAR) STYLES */
     .cell-wrapper {
       position: relative;
       display: inline-block;
@@ -263,7 +261,7 @@
       height: 0;
       border-left: 8px solid transparent;
       border-top: 8px solid var(--ielts-red);
-      pointer-events: none; /* Let clicks pass through to the dropdown */
+      pointer-events: none;
       z-index: 5;
     }
     
@@ -567,7 +565,8 @@
       </div>
     </div>
   </div>
- <div id="quick-note-modal" class="ws-modal-overlay" style="display: none;">
+
+  <div id="quick-note-modal" class="ws-modal-overlay" style="display: none;">
     <div class="ws-modal" style="max-width: 320px; padding: 20px;">
       <h2 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 8px; color: var(--text-dark);">Session Quick-Note</h2>
       <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">Add an informal note for this specific class date.</p>
@@ -581,6 +580,7 @@
       </div>
     </div>
   </div>
+
   <main class="ws-main-container">
     <div class="ws-breadcrumbs" id="breadcrumbs"></div>
     <div id="app-view"></div>
@@ -689,6 +689,12 @@
     }
 
     window.addEventListener("DOMContentLoaded", async () => {
+      // Give visual feedback that the free server might take a moment to wake up
+      const selectEl = document.getElementById("login-account-select");
+      if (selectEl) {
+        selectEl.innerHTML = `<option value="" disabled selected>Waking up secure server (takes ~45s)...</option>`;
+      }
+
       // 1. Force the system to fetch the architecture from MongoDB first
       await fetchSystemConfig();
       
@@ -889,7 +895,7 @@
       document.getElementById("app-view").innerHTML = html;
     }
 
-   function renderCoursesView(cohortId) {
+    function renderCoursesView(cohortId) {
       saveViewState("courses", cohortId); 
       activeCohort = APP_DATA.cohorts.find(c => c.id === cohortId);
       activeCourse = null;
@@ -965,7 +971,7 @@
       document.getElementById("app-view").innerHTML = html;
     }
 
-   async function renderAttendanceSheet(courseId, skipCloudSync = false) {
+    async function renderAttendanceSheet(courseId, skipCloudSync = false) {
       saveViewState("sheet", courseId); 
       
       if (!skipCloudSync) {
@@ -1098,7 +1104,6 @@
                 else if (currentVal === "Absent Informed") selectClass += " status-informed";
                 else if (currentVal === "Absent") selectClass += " status-absent";
 
-                // Correctly referencing the variables without breaking the JavaScript string
                 const sNotes = courseRecord.notes[student.id] || {};
                 const noteText = sNotes[sessionDate] || "";
                 const tooltipStr = noteText ? \`title="\${noteText.replace(/"/g, '&quot;')}"\` : "";
@@ -1145,6 +1150,7 @@
 
       document.getElementById("app-view").innerHTML = html;
     }
+
     function openCalendarModal(courseId) {
       currentModalCourseId = courseId;
       currentEditingDate = null;
@@ -1384,7 +1390,7 @@
         }
       });
 
-     const totalSessions = courseRecord.sessions.length;
+      const totalSessions = courseRecord.sessions.length;
       const attendedSessions = presentCount + lateCount + onlineCount;
       
       let rateText = "N/A";
@@ -1501,19 +1507,18 @@
         document.body.classList.remove("printing-individual-dossier");
       };
     }
+
     function markAllPresent(courseId, sessionDate) {
       const courseRecord = attendanceDB[courseId];
       if (!courseRecord || !activeCourse) return;
 
       let updatedCount = 0;
 
-      // Loop through all students in this specific course
       activeCourse.students.forEach(student => {
         if (!courseRecord.records[student.id]) {
           courseRecord.records[student.id] = {};
         }
         
-        // If the dropdown is currently blank/unmarked, mark it Present
         const currentStatus = courseRecord.records[student.id][sessionDate];
         if (!currentStatus || currentStatus === "") {
           courseRecord.records[student.id][sessionDate] = "Present";
@@ -1521,15 +1526,14 @@
         }
       });
 
-      // If we changed anything, save to database and refresh the screen
       if (updatedCount > 0) {
         saveAttendanceDBLocally();
         dispatchCloudMutation(courseId);
         renderAttendanceSheet(courseId, true);
       }
     }
+
     function openQuickNoteModal(courseId, studentId, sessionDate) {
-      // Prevent opening if the user doesn't have edit access
       const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(courseId);
       if (!canEdit) return false;
 
@@ -1563,7 +1567,7 @@
       if (!courseRecord.notes[studentId]) courseRecord.notes[studentId] = {};
 
       if (noteText === "") {
-         delete courseRecord.notes[studentId][sessionDate]; // Clean up if empty
+         delete courseRecord.notes[studentId][sessionDate];
       } else {
          courseRecord.notes[studentId][sessionDate] = noteText;
       }
@@ -1576,19 +1580,17 @@
 
     function deleteQuickNote() {
       document.getElementById("quick-note-input").value = "";
-      saveQuickNote(); // Saving an empty string triggers the delete logic
+      saveQuickNote(); 
     }
 
     async function renderCohortSummary(cohortId) {
       saveViewState("summary", cohortId);
       
-      // Ensure we have the latest cloud data before crunching numbers
       await syncDatabaseFromCloud();
       
       activeCohort = APP_DATA.cohorts.find(c => c.id === cohortId);
       activeCourse = null;
       
-      // Update breadcrumbs to reflect we are in the summary view
       const el = document.getElementById("breadcrumbs");
       el.innerHTML = `
         <span class="actionable" onclick="renderCohortsView()">Cohorts</span>
@@ -1598,7 +1600,6 @@
         <span>Master Summary</span>
       `;
 
-      // 1. Gather all unique students and their course data
       const studentMasterList = {};
       const allCohortCourses = activeCohort.courses;
 
@@ -1624,7 +1625,6 @@
             }
           });
 
-          // Apply the exact N/A logic here
           if (markedCount > 0) {
             studentMasterList[student.id].courseRates[course.id] = Math.round((attendedCount / markedCount) * 100);
           } else {
@@ -1633,10 +1633,8 @@
         });
       });
 
-      // Convert object to array and sort alphabetically by name
       const studentArray = Object.values(studentMasterList).sort((a, b) => a.name.localeCompare(b.name));
 
-      // 2. Build the Master Table HTML
       let html = `
         <div class="ws-panel">
           <div class="ws-panel-header">
@@ -1682,13 +1680,10 @@
           const rate = student.courseRates[course.id];
           
           if (rate === undefined) {
-             // Student is not enrolled in this specific course
              rowHtml += `<td style="text-align: center; color: var(--border-subtle); font-size: 0.75rem;">-</td>`;
           } else if (rate === "N/A") {
-             // Enrolled, but 0 classes held
              rowHtml += `<td style="text-align: center;"><span class="ws-chip ws-chip-gray" style="font-size: 0.7rem; padding: 2px 6px;">N/A</span></td>`;
           } else {
-             // Valid percentage
              validCourseCount++;
              totalValidPercentage += rate;
              
@@ -1700,7 +1695,6 @@
           }
         });
 
-        // Calculate Overall Institutional Average
         let overallText = "N/A";
         let overallChip = "ws-chip-gray";
         
