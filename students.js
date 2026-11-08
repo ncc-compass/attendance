@@ -56,12 +56,12 @@ const STUDENT_DIRECTORY = [
 // ----------------------------------------
   // Spring 2026
   // ----------------------------------------
-  { id: "xxxx", name: "Arisha", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "xxxx", name: "Tazib", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "xxxx", name: "Zaim Zakaria", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "xxxx", name: "Dibaka", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "xxxx", name: "Ovi", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "xxxx", name: "Zoheb", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] }
+  { id: "1111", name: "Arisha", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "2222", name: "Tazib", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "3333", name: "Zaim Zakaria", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "4444", name: "Dibaka", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "5555", name: "Ovi", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "6666", name: "Zoheb", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] }
 ];
 
 // ==========================================
