@@ -932,9 +932,9 @@
       `;
       document.getElementById("app-view").innerHTML = html;
     }
-    async function renderAttendanceSheet(courseId, skipCloudSync = false) {
+   async function renderAttendanceSheet(courseId, skipCloudSync = false) {
       saveViewState("sheet", courseId); 
-     
+      
       if (!skipCloudSync) {
         await syncDatabaseFromCloud();
       }
@@ -959,6 +959,10 @@
       }
       if (!attendanceDB[courseId].incidents) {
         attendanceDB[courseId].incidents = {};
+      }
+      // Task 4: Ensure notes object exists
+      if (!attendanceDB[courseId].notes) {
+        attendanceDB[courseId].notes = {};
       }
 
       const courseRecord = attendanceDB[courseId];
@@ -1038,33 +1042,7 @@
         let rateChip = "ws-chip-green";
         if (rate < 50) rateChip = "ws-chip-red";
         else if (rate < 75) rateChip = "ws-chip-amber";
-        // --- SPARKLINE LOGIC START ---
-        // Get up to the last 5 sessions from the chronologically sorted array
-        const last5Sessions = courseRecord.sessions.slice(-5);
-        let sparklineHtml = '<div class="sparkline-wrapper ws-hide-on-summary-print" title="Last 5 classes">';
-        
-        // If the course has had fewer than 5 classes, pad with gray placeholder dots
-        const emptyCount = 5 - last5Sessions.length;
-        for(let i = 0; i < emptyCount; i++) {
-          sparklineHtml += `<span class="spark-dot spark-empty" title="Class not yet held"></span>`;
-        }
 
-        // Generate the colored dots for the sessions that exist
-        last5Sessions.forEach(sessionDate => {
-          const status = sRecords[sessionDate] || "";
-          let dotClass = "spark-empty";
-          let tooltip = "Unmarked";
-          
-          if (status === "Present") { dotClass = "spark-present"; tooltip = "Present"; }
-          else if (status === "Late") { dotClass = "spark-late"; tooltip = "Late"; }
-          else if (status === "Joined online") { dotClass = "spark-online"; tooltip = "Joined online"; }
-          else if (status === "Absent Informed") { dotClass = "spark-informed"; tooltip = "Absent Informed"; }
-          else if (status === "Absent") { dotClass = "spark-absent"; tooltip = "Absent"; }
-
-          sparklineHtml += `<span class="spark-dot ${dotClass}" title="${tooltip} (${formatClassDate(sessionDate)})"></span>`;
-        });
-        sparklineHtml += '</div>';
-        // --- SPARKLINE LOGIC END ---
         html += `
           <tr>
             <td class="sticky-col-id" style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">${student.id}</td>
@@ -1083,31 +1061,29 @@
                 else if (currentVal === "Absent Informed") selectClass += " status-informed";
                 else if (currentVal === "Absent") selectClass += " status-absent";
 
-                return `
-                  // Look up if a note exists for this specific dropdown
-                const sNotes = courseRecord.notes[studentId] || {};
+                // Look up if a note exists for this specific dropdown (Fixed student.id)
+                const sNotes = courseRecord.notes[student.id] || {};
                 const noteText = sNotes[sessionDate] || "";
-                const tooltipStr = noteText ? `title="${noteText.replace(/"/g, '&quot;')}"` : "";
-                const dogEarHtml = noteText ? `<div class="dog-ear"></div>` : "";
+                const tooltipStr = noteText ? \`title="\${noteText.replace(/"/g, '&quot;')}"\` : "";
+                const dogEarHtml = noteText ? \`<div class="dog-ear"></div>\` : "";
 
-                return `
+                return \`
                   <td class="session-date-cell ws-hide-on-summary-print">
-                    <div class="cell-wrapper" ${tooltipStr} oncontextmenu="event.preventDefault(); openQuickNoteModal('${courseId}', '${studentId}', '${sessionDate}');">
-                      ${dogEarHtml}
-                      <select class="${selectClass}" 
-                        ${!canEdit ? 'disabled' : ''} 
-                        onchange="updateStatus('${courseId}', '${studentId}', '${sessionDate}', this.value)">
-                        <option value="" ${currentVal === '' ? 'selected' : ''}>Choose one</option>
-                        <option value="Present" ${currentVal === 'Present' ? 'selected' : ''}>Present</option>
-                        <option value="Absent" ${currentVal === 'Absent' ? 'selected' : ''}>Absent</option>
-                        <option value="Late" ${currentVal === 'Late' ? 'selected' : ''}>Late</option>
-                        <option value="Joined online" ${currentVal === 'Joined online' ? 'selected' : ''}>Joined online</option>
-                        <option value="Absent Informed" ${currentVal === 'Absent Informed' ? 'selected' : ''}>Absent Informed</option>
+                    <div class="cell-wrapper" \${tooltipStr} oncontextmenu="event.preventDefault(); openQuickNoteModal('\${courseId}', '\${student.id}', '\${sessionDate}');">
+                      \${dogEarHtml}
+                      <select class="\${selectClass}" 
+                        \${!canEdit ? 'disabled' : ''} 
+                        onchange="updateStatus('\${courseId}', '\${student.id}', '\${sessionDate}', this.value)">
+                        <option value="" \${currentVal === '' ? 'selected' : ''}>Choose one</option>
+                        <option value="Present" \${currentVal === 'Present' ? 'selected' : ''}>Present</option>
+                        <option value="Absent" \${currentVal === 'Absent' ? 'selected' : ''}>Absent</option>
+                        <option value="Late" \${currentVal === 'Late' ? 'selected' : ''}>Late</option>
+                        <option value="Joined online" \${currentVal === 'Joined online' ? 'selected' : ''}>Joined online</option>
+                        <option value="Absent Informed" \${currentVal === 'Absent Informed' ? 'selected' : ''}>Absent Informed</option>
                       </select>
                     </div>
                   </td>
-                `;
-                `;
+                \`;
               }).join('')
             }
             <td class="attendance-rate-cell">
@@ -1132,7 +1108,6 @@
 
       document.getElementById("app-view").innerHTML = html;
     }
-
     function openCalendarModal(courseId) {
       currentModalCourseId = courseId;
       currentEditingDate = null;
