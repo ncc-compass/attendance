@@ -211,6 +211,7 @@
     }
     .badge-icon-btn svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; display: block; }
     .badge-icon-btn.btn-edit:hover { background-color: #f1f5f9; color: #0f172a; }
+    .badge-icon-btn.btn-quick:hover { background-color: var(--status-green-bg); color: var(--status-green-text); }
     .badge-icon-btn.btn-delete:hover { background-color: var(--status-red-bg); color: var(--status-red-text); }
 
     .ws-table th.sticky-col-id, .ws-table td.sticky-col-id { position: sticky; left: 0; background-color: var(--surface-white); z-index: 3; width: 90px; }
@@ -961,6 +962,9 @@
                           <span class="session-date-label">${formatClassDate(s)}</span>
                           ${canEdit ? `
                             <div class="date-action-badge ws-no-print" onclick="event.stopPropagation()">
+                              <button type="button" class="badge-icon-btn btn-quick" title="Mark Unmarked as Present" onclick="event.stopPropagation(); markAllPresent('${courseId}', '${s}')">
+                                <svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                              </button>
                               <button type="button" class="badge-icon-btn btn-edit" title="Edit Session Date" onclick="event.stopPropagation(); openEditSessionModal('${courseId}', '${s}')">
                                 <svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                               </button>
@@ -1435,6 +1439,33 @@
       window.onafterprint = () => {
         document.body.classList.remove("printing-individual-dossier");
       };
+    }
+    function markAllPresent(courseId, sessionDate) {
+      const courseRecord = attendanceDB[courseId];
+      if (!courseRecord || !activeCourse) return;
+
+      let updatedCount = 0;
+
+      // Loop through all students in this specific course
+      activeCourse.students.forEach(student => {
+        if (!courseRecord.records[student.id]) {
+          courseRecord.records[student.id] = {};
+        }
+        
+        // If the dropdown is currently blank/unmarked, mark it Present
+        const currentStatus = courseRecord.records[student.id][sessionDate];
+        if (!currentStatus || currentStatus === "") {
+          courseRecord.records[student.id][sessionDate] = "Present";
+          updatedCount++;
+        }
+      });
+
+      // If we changed anything, save to database and refresh the screen
+      if (updatedCount > 0) {
+        saveAttendanceDBLocally();
+        dispatchCloudMutation(courseId);
+        renderAttendanceSheet(courseId, true);
+      }
     }
   </script>
 </body>
