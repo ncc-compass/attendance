@@ -14,7 +14,8 @@
 // ==========================================
 const COHORTS = [
   { id: "autumn-2026", name: "L3 Autumn 2026" },
-  { id: "winter-2026", name: "L3 Winter 2026" }
+  { id: "winter-2026", name: "L3 Winter 2026" },
+  { id: "sprint-2026", name: "L3 Spring 2026" }
 ];
 
 // ==========================================
@@ -49,7 +50,18 @@ const STUDENT_DIRECTORY = [
   { id: "221994", name: "Tashfia Haque", cohort: "winter-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
   { id: "221995", name: "Shylah Chowdhury", cohort: "winter-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
   { id: "PP_Mashir", name: "Mashir Hasan", cohort: "winter-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
-  { id: "PP_Shaiara", name: "Shaiara Binta Sultana", cohort: "winter-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] }
+  { id: "PP_Shaiara", name: "Shaiara Binta Sultana", cohort: "winter-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+
+
+// ----------------------------------------
+  // Spring 2026
+  // ----------------------------------------
+  { id: "xxxx", name: "Arisha", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "xxxx", name: "Tazib", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "xxxx", name: "Zaim Zakaria", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "xxxx", name: "Dibaka", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "xxxx", name: "Ovi", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] },
+  { id: "xxxx", name: "Zoheb", cohort: "spring-2026", enrolled: ["c_eap", "c_dels", "c_rss", "c_mfus"] }
 ];
 
 // ==========================================
