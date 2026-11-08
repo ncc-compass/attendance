@@ -888,7 +888,6 @@
 
       streamOrder.forEach(stream => {
         if (groupedCourses[stream] && groupedCourses[stream].length > 0) {
-          // Add the Stream Header
           contentHtml += `
             <div style="margin-top: 24px; margin-bottom: 16px; padding-bottom: 6px; border-bottom: 2px solid var(--border-light);">
               <h3 style="font-size: 1.05rem; font-weight: 800; color: var(--text-main); text-transform: uppercase; letter-spacing: 0.04em;">
@@ -898,7 +897,6 @@
             <div class="ws-grid">
           `;
           
-          // Add the Course Cards for this stream
           groupedCourses[stream].forEach(crs => {
             const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(crs.id);
             const accessLabel = canEdit ? "Full Roster Access" : "Read-Only Archive";
@@ -915,14 +913,14 @@
             `;
           });
           
-          // Close the grid container
           contentHtml += `</div>`;
         }
       });
 
+      // 3. Assemble the final view including the Summary Table button
       let html = `
         <div class="ws-panel">
-         <div class="ws-panel-header">
+          <div class="ws-panel-header">
             <h2 class="ws-panel-title">${activeCohort.name} - Course Registries</h2>
             <div style="display: flex; gap: 8px;">
               <button class="ws-btn ws-btn-primary ws-no-print" style="background-color: var(--ielts-red);" onclick="renderCohortSummary('${activeCohort.id}')">
@@ -932,10 +930,13 @@
               <button class="ws-btn ws-btn-outline ws-no-print" onclick="renderCohortsView()">← Back to Cohorts</button>
             </div>
           </div>
+          <div class="ws-panel-body" style="padding-top: 4px;">
+            ${contentHtml}
+          </div>
+        </div>
       `;
       document.getElementById("app-view").innerHTML = html;
-    }
-   async function renderAttendanceSheet(courseId, skipCloudSync = false) {
+    }   async function renderAttendanceSheet(courseId, skipCloudSync = false) {
       saveViewState("sheet", courseId); 
       
       if (!skipCloudSync) {
