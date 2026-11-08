@@ -960,7 +960,6 @@
       if (!attendanceDB[courseId].incidents) {
         attendanceDB[courseId].incidents = {};
       }
-      // Task 4: Ensure notes object exists
       if (!attendanceDB[courseId].notes) {
         attendanceDB[courseId].notes = {};
       }
@@ -1053,7 +1052,6 @@
               courseRecord.sessions.map(sessionDate => {
                 const currentVal = sRecords[sessionDate] || "";
                 
-                // Determine the background color class for the dropdown
                 let selectClass = "ws-select";
                 if (currentVal === "Present") selectClass += " status-present";
                 else if (currentVal === "Late") selectClass += " status-late";
@@ -1061,29 +1059,29 @@
                 else if (currentVal === "Absent Informed") selectClass += " status-informed";
                 else if (currentVal === "Absent") selectClass += " status-absent";
 
-                // Look up if a note exists for this specific dropdown (Fixed student.id)
+                // Correctly referencing the variables without breaking the JavaScript string
                 const sNotes = courseRecord.notes[student.id] || {};
                 const noteText = sNotes[sessionDate] || "";
-                const tooltipStr = noteText ? \`title="\${noteText.replace(/"/g, '&quot;')}"\` : "";
-                const dogEarHtml = noteText ? \`<div class="dog-ear"></div>\` : "";
+                const tooltipStr = noteText ? `title="${noteText.replace(/"/g, '&quot;')}"` : "";
+                const dogEarHtml = noteText ? `<div class="dog-ear"></div>` : "";
 
-                return \`
+                return `
                   <td class="session-date-cell ws-hide-on-summary-print">
-                    <div class="cell-wrapper" \${tooltipStr} oncontextmenu="event.preventDefault(); openQuickNoteModal('\${courseId}', '\${student.id}', '\${sessionDate}');">
-                      \${dogEarHtml}
-                      <select class="\${selectClass}" 
-                        \${!canEdit ? 'disabled' : ''} 
-                        onchange="updateStatus('\${courseId}', '\${student.id}', '\${sessionDate}', this.value)">
-                        <option value="" \${currentVal === '' ? 'selected' : ''}>Choose one</option>
-                        <option value="Present" \${currentVal === 'Present' ? 'selected' : ''}>Present</option>
-                        <option value="Absent" \${currentVal === 'Absent' ? 'selected' : ''}>Absent</option>
-                        <option value="Late" \${currentVal === 'Late' ? 'selected' : ''}>Late</option>
-                        <option value="Joined online" \${currentVal === 'Joined online' ? 'selected' : ''}>Joined online</option>
-                        <option value="Absent Informed" \${currentVal === 'Absent Informed' ? 'selected' : ''}>Absent Informed</option>
+                    <div class="cell-wrapper" ${tooltipStr} oncontextmenu="event.preventDefault(); openQuickNoteModal('${courseId}', '${student.id}', '${sessionDate}');">
+                      ${dogEarHtml}
+                      <select class="${selectClass}" 
+                        ${!canEdit ? 'disabled' : ''} 
+                        onchange="updateStatus('${courseId}', '${student.id}', '${sessionDate}', this.value)">
+                        <option value="" ${currentVal === '' ? 'selected' : ''}>Choose one</option>
+                        <option value="Present" ${currentVal === 'Present' ? 'selected' : ''}>Present</option>
+                        <option value="Absent" ${currentVal === 'Absent' ? 'selected' : ''}>Absent</option>
+                        <option value="Late" ${currentVal === 'Late' ? 'selected' : ''}>Late</option>
+                        <option value="Joined online" ${currentVal === 'Joined online' ? 'selected' : ''}>Joined online</option>
+                        <option value="Absent Informed" ${currentVal === 'Absent Informed' ? 'selected' : ''}>Absent Informed</option>
                       </select>
                     </div>
                   </td>
-                \`;
+                `;
               }).join('')
             }
             <td class="attendance-rate-cell">
