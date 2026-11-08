@@ -821,7 +821,7 @@
       document.getElementById("app-view").innerHTML = html;
     }
 
-    function renderCoursesView(cohortId) {
+   function renderCoursesView(cohortId) {
       saveViewState("courses", cohortId); 
       activeCohort = APP_DATA.cohorts.find(c => c.id === cohortId);
       activeCourse = null;
@@ -831,21 +831,52 @@
         currentUser.role === "admin" || (currentUser.editableCourses && currentUser.editableCourses.includes(crs.id))
       );
 
-      let gridHtml = '';
+      // 1. Group courses by their Stream
+      const streamOrder = ["Core Courses", "IT Stream", "Life Science", "Engineering Stream", "Business Stream"];
+      const groupedCourses = {};
+      
       visibleCourses.forEach(crs => {
-        const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(crs.id);
-        const accessLabel = canEdit ? "Full Roster Access" : "Read-Only Archive";
-        const badgeClass = canEdit ? "ws-chip-green" : "ws-chip-blue";
+        // Look up the stream from our global catalog
+        const stream = COURSE_CATALOG[crs.id]?.stream || "Other";
+        if (!groupedCourses[stream]) groupedCourses[stream] = [];
+        groupedCourses[stream].push(crs);
+      });
 
-        gridHtml += `
-          <div class="ws-card" onclick="renderAttendanceSheet('${crs.id}')">
-            <h3>${crs.name}</h3>
-            <p>${crs.students.length} Enrolled Candidates</p>
-            <div style="margin-top: 14px;">
-              <span class="ws-chip ${badgeClass}">${accessLabel}</span>
+      // 2. Build the HTML with section headers
+      let contentHtml = '';
+
+      streamOrder.forEach(stream => {
+        if (groupedCourses[stream] && groupedCourses[stream].length > 0) {
+          // Add the Stream Header
+          contentHtml += `
+            <div style="margin-top: 24px; margin-bottom: 16px; padding-bottom: 6px; border-bottom: 2px solid var(--border-light);">
+              <h3 style="font-size: 1.05rem; font-weight: 800; color: var(--text-main); text-transform: uppercase; letter-spacing: 0.04em;">
+                ${stream}
+              </h3>
             </div>
-          </div>
-        `;
+            <div class="ws-grid">
+          `;
+          
+          // Add the Course Cards for this stream
+          groupedCourses[stream].forEach(crs => {
+            const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(crs.id);
+            const accessLabel = canEdit ? "Full Roster Access" : "Read-Only Archive";
+            const badgeClass = canEdit ? "ws-chip-green" : "ws-chip-blue";
+
+            contentHtml += `
+              <div class="ws-card" onclick="renderAttendanceSheet('${crs.id}')">
+                <h3>${crs.name}</h3>
+                <p>${crs.students.length} Enrolled Candidates</p>
+                <div style="margin-top: 14px;">
+                  <span class="ws-chip ${badgeClass}">${accessLabel}</span>
+                </div>
+              </div>
+            `;
+          });
+          
+          // Close the grid container
+          contentHtml += `</div>`;
+        }
       });
 
       let html = `
@@ -854,16 +885,13 @@
             <h2 class="ws-panel-title">${activeCohort.name} - Course Registries</h2>
             <button class="ws-btn ws-btn-outline ws-no-print" onclick="renderCohortsView()">← Back to Cohorts</button>
           </div>
-          <div class="ws-panel-body">
-            <div class="ws-grid">
-              ${gridHtml}
-            </div>
+          <div class="ws-panel-body" style="padding-top: 4px;">
+            ${contentHtml}
           </div>
         </div>
       `;
       document.getElementById("app-view").innerHTML = html;
     }
-
     async function renderAttendanceSheet(courseId, skipCloudSync = false) {
       saveViewState("sheet", courseId); 
       
