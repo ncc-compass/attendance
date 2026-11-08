@@ -242,15 +242,13 @@
     .ws-chip-amber { background-color: var(--status-amber-bg); color: var(--status-amber-text); border-color: var(--status-amber-border); }
     .ws-chip-red { background-color: var(--status-red-bg); color: var(--status-red-text); border-color: var(--status-red-border); }
     .ws-chip-blue { background-color: var(--status-blue-bg); color: var(--status-blue-text); border-color: var(--status-blue-border); }
-    /* SPARKLINE STYLES */
-    .sparkline-wrapper { display: inline-flex; align-items: center; gap: 3px; vertical-align: middle; }
-    .spark-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-    .spark-present { background-color: #10b981; } /* Green */
-    .spark-late { background-color: #f59e0b; } /* Amber */
-    .spark-online { background-color: #3b82f6; } /* Blue */
-    .spark-informed { background-color: #fca5a5; } /* Light Red */
-    .spark-absent { background-color: #dc2626; } /* Dark Red */
-    .spark-empty { background-color: #e2e8f0; } /* Gray placeholder for unheld classes */
+    
+    /* DROPDOWN STATUS COLORS */
+    .ws-select.status-present { background-color: var(--status-green-bg); color: var(--status-green-text); border-color: var(--status-green-border); font-weight: 700; }
+    .ws-select.status-late { background-color: var(--status-amber-bg); color: var(--status-amber-text); border-color: var(--status-amber-border); font-weight: 700; }
+    .ws-select.status-online { background-color: var(--status-blue-bg); color: var(--status-blue-text); border-color: #bfdbfe; font-weight: 700; }
+    .ws-select.status-informed { background-color: #fee2e2; color: #991b1b; border-color: #fecaca; font-weight: 700; }
+    .ws-select.status-absent { background-color: var(--status-red-bg); color: var(--status-red-text); border-color: var(--status-red-border); font-weight: 700; }
     
     .ws-modal-overlay {
       position: fixed;
@@ -1040,9 +1038,18 @@
             ${
               courseRecord.sessions.map(sessionDate => {
                 const currentVal = sRecords[sessionDate] || "";
+                
+                // Determine the background color class for the dropdown
+                let selectClass = "ws-select";
+                if (currentVal === "Present") selectClass += " status-present";
+                else if (currentVal === "Late") selectClass += " status-late";
+                else if (currentVal === "Joined online") selectClass += " status-online";
+                else if (currentVal === "Absent Informed") selectClass += " status-informed";
+                else if (currentVal === "Absent") selectClass += " status-absent";
+
                 return `
                   <td class="session-date-cell ws-hide-on-summary-print">
-                    <select class="ws-select" 
+                    <select class="${selectClass}" 
                       ${!canEdit ? 'disabled' : ''} 
                       onchange="updateStatus('${courseId}', '${student.id}', '${sessionDate}', this.value)">
                       <option value="" ${currentVal === '' ? 'selected' : ''}>Choose one</option>
@@ -1057,10 +1064,7 @@
               }).join('')
             }
             <td class="attendance-rate-cell">
-              <div style="display: flex; align-items: center; justify-content: center; gap: 8px;">
-                <span class="ws-chip ${rateChip}" style="min-width: 48px;">${rate}%</span>
-                ${sparklineHtml}
-              </div>
+              <span class="ws-chip ${rateChip}">${rate}%</span>
             </td>
             <td class="ws-no-print ws-hide-on-summary-print" style="text-align: center;">
               <button class="ws-btn ws-btn-outline ws-btn-sm" onclick="openStudentReport('${courseId}', '${student.id}')">
