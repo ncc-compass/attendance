@@ -934,9 +934,7 @@
     }
     async function renderAttendanceSheet(courseId, skipCloudSync = false) {
       saveViewState("sheet", courseId); 
-      if (!attendanceDB[courseId].notes) {
-        attendanceDB[courseId].notes = {};
-      }
+     
       if (!skipCloudSync) {
         await syncDatabaseFromCloud();
       }
