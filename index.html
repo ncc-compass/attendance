@@ -5,10 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Compass Attendance System 2.2.1</title>
   
-  <!-- DATA FILES IN STRICT ORDER -->
-  <script src="auth.js"></script>
-  <script src="courses.js"></script>
-  <script src="students.js"></script>
+  <!-- DATA FILES REMOVED: Now securely fetching from MongoDB Atlas -->
 
   <style>
     :root {
@@ -455,7 +452,7 @@
       <div class="login-field-group">
         <label>Account:</label>
         <select id="login-account-select" class="login-select">
-          <option value="" disabled selected>Choose an account</option>
+          <option value="" disabled selected>Loading accounts...</option>
         </select>
       </div>
 
@@ -595,6 +592,13 @@
     // -------------------------------------------------------------
     const NODE_API_URL = "https://compass-backend-yq9g.onrender.com";
 
+    // -------------------------------------------------------------
+    // NEW GLOBAL CONFIG VARIABLES (Replaces static files)
+    // -------------------------------------------------------------
+    let USERS = [];
+    let COURSE_CATALOG = {};
+    let APP_DATA = { cohorts: [] };
+
     let currentUser = null;
     let activeCohort = null;
     let activeCourse = null;
@@ -602,6 +606,25 @@
     let currentEditingDate = null;
     let currentNoteContext = { courseId: null, studentId: null, sessionDate: null };
     let attendanceDB = {};
+
+    // -------------------------------------------------------------
+    // CLOUD CONFIGURATION SYNC
+    // -------------------------------------------------------------
+    async function fetchSystemConfig() {
+      try {
+        const res = await fetch(`${NODE_API_URL}/api/config`);
+        if (!res.ok) throw new Error("Config sync failed.");
+        const configData = await res.json();
+        
+        if (configData && configData.users) {
+          USERS = configData.users;
+          COURSE_CATALOG = configData.catalog || {};
+          APP_DATA.cohorts = configData.cohorts || [];
+        }
+      } catch (err) {
+        console.error("Failed to load system architecture from MongoDB.", err);
+      }
+    }
 
     function saveAttendanceDBLocally() {
       localStorage.setItem("IELTS_ATTENDANCE_DB", JSON.stringify(attendanceDB));
@@ -613,7 +636,7 @@
 
     async function syncDatabaseFromCloud() {
       try {
-        console.log("Fetching live data from MongoDB Atlas via Render...");
+        console.log("Fetching live attendance data from MongoDB Atlas...");
         const res = await fetch(`${NODE_API_URL}/api/db`);
 
         if (!res.ok) throw new Error("HTTP error " + res.status);
@@ -666,6 +689,10 @@
     }
 
     window.addEventListener("DOMContentLoaded", async () => {
+      // 1. Force the system to fetch the architecture from MongoDB first
+      await fetchSystemConfig();
+      
+      // 2. Populate dropdowns now that USERS exist
       initializeAccountDropdown();
 
       const savedUserStr = localStorage.getItem("COMPASS_CURRENT_USER");
@@ -936,7 +963,9 @@
         </div>
       `;
       document.getElementById("app-view").innerHTML = html;
-    }   async function renderAttendanceSheet(courseId, skipCloudSync = false) {
+    }
+
+   async function renderAttendanceSheet(courseId, skipCloudSync = false) {
       saveViewState("sheet", courseId); 
       
       if (!skipCloudSync) {
@@ -1072,26 +1101,26 @@
                 // Correctly referencing the variables without breaking the JavaScript string
                 const sNotes = courseRecord.notes[student.id] || {};
                 const noteText = sNotes[sessionDate] || "";
-                const tooltipStr = noteText ? `title="${noteText.replace(/"/g, '&quot;')}"` : "";
-                const dogEarHtml = noteText ? `<div class="dog-ear"></div>` : "";
+                const tooltipStr = noteText ? \`title="\${noteText.replace(/"/g, '&quot;')}"\` : "";
+                const dogEarHtml = noteText ? \`<div class="dog-ear"></div>\` : "";
 
-                return `
+                return \`
                   <td class="session-date-cell ws-hide-on-summary-print">
-                    <div class="cell-wrapper" ${tooltipStr} oncontextmenu="event.preventDefault(); openQuickNoteModal('${courseId}', '${student.id}', '${sessionDate}');">
-                      ${dogEarHtml}
-                      <select class="${selectClass}" 
-                        ${!canEdit ? 'disabled' : ''} 
-                        onchange="updateStatus('${courseId}', '${student.id}', '${sessionDate}', this.value)">
-                        <option value="" ${currentVal === '' ? 'selected' : ''}>Choose one</option>
-                        <option value="Present" ${currentVal === 'Present' ? 'selected' : ''}>Present</option>
-                        <option value="Absent" ${currentVal === 'Absent' ? 'selected' : ''}>Absent</option>
-                        <option value="Late" ${currentVal === 'Late' ? 'selected' : ''}>Late</option>
-                        <option value="Joined online" ${currentVal === 'Joined online' ? 'selected' : ''}>Joined online</option>
-                        <option value="Absent Informed" ${currentVal === 'Absent Informed' ? 'selected' : ''}>Absent Informed</option>
+                    <div class="cell-wrapper" \${tooltipStr} oncontextmenu="event.preventDefault(); openQuickNoteModal('\${courseId}', '\${student.id}', '\${sessionDate}');">
+                      \${dogEarHtml}
+                      <select class="\${selectClass}" 
+                        \${!canEdit ? 'disabled' : ''} 
+                        onchange="updateStatus('\${courseId}', '\${student.id}', '\${sessionDate}', this.value)">
+                        <option value="" \${currentVal === '' ? 'selected' : ''}>Choose one</option>
+                        <option value="Present" \${currentVal === 'Present' ? 'selected' : ''}>Present</option>
+                        <option value="Absent" \${currentVal === 'Absent' ? 'selected' : ''}>Absent</option>
+                        <option value="Late" \${currentVal === 'Late' ? 'selected' : ''}>Late</option>
+                        <option value="Joined online" \${currentVal === 'Joined online' ? 'selected' : ''}>Joined online</option>
+                        <option value="Absent Informed" \${currentVal === 'Absent Informed' ? 'selected' : ''}>Absent Informed</option>
                       </select>
                     </div>
                   </td>
-                `;
+                \`;
               }).join('')
             }
            <td class="attendance-rate-cell">
