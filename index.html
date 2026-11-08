@@ -250,6 +250,24 @@
     .ws-select.status-online { background-color: var(--status-blue-bg); color: var(--status-blue-text); border-color: #bfdbfe; font-weight: 700; }
     .ws-select.status-informed { background-color: #fee2e2; color: #991b1b; border-color: #fecaca; font-weight: 700; }
     .ws-select.status-absent { background-color: var(--status-red-bg); color: var(--status-red-text); border-color: var(--status-red-border); font-weight: 700; }
+
+  /* QUICK NOTES (DOG-EAR) STYLES */
+    .cell-wrapper {
+      position: relative;
+      display: inline-block;
+      width: 100%;
+    }
+    .dog-ear {
+      position: absolute;
+      top: -2px;
+      right: -2px;
+      width: 0;
+      height: 0;
+      border-left: 8px solid transparent;
+      border-top: 8px solid var(--ielts-red);
+      pointer-events: none; /* Let clicks pass through to the dropdown */
+      z-index: 5;
+    }
     
     .ws-modal-overlay {
       position: fixed;
@@ -551,7 +569,20 @@
       </div>
     </div>
   </div>
-
+ <div id="quick-note-modal" class="ws-modal-overlay" style="display: none;">
+    <div class="ws-modal" style="max-width: 320px; padding: 20px;">
+      <h2 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 8px; color: var(--text-dark);">Session Quick-Note</h2>
+      <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">Add an informal note for this specific class date.</p>
+      
+      <textarea id="quick-note-input" class="ws-textarea" style="min-height: 60px; margin-bottom: 12px;" placeholder="e.g. Left 15 mins early due to headache..."></textarea>
+      
+      <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
+        <button class="ws-btn ws-btn-outline ws-btn-sm" id="btn-delete-note" style="color: var(--status-red-text); border-color: transparent; margin-right: auto;" onclick="deleteQuickNote()">Remove Note</button>
+        <button class="ws-btn ws-btn-outline ws-btn-sm" onclick="closeQuickNoteModal()">Cancel</button>
+        <button class="ws-btn ws-btn-primary ws-btn-sm" onclick="saveQuickNote()">Save Note</button>
+      </div>
+    </div>
+  </div>
   <main class="ws-main-container">
     <div class="ws-breadcrumbs" id="breadcrumbs"></div>
     <div id="app-view"></div>
@@ -568,6 +599,7 @@
     let activeCourse = null;
     let currentModalCourseId = null;
     let currentEditingDate = null;
+    let currentNoteContext = { courseId: null, studentId: null, sessionDate: null };
     let attendanceDB = {};
 
     function saveAttendanceDBLocally() {
@@ -902,7 +934,9 @@
     }
     async function renderAttendanceSheet(courseId, skipCloudSync = false) {
       saveViewState("sheet", courseId); 
-      
+      if (!attendanceDB[courseId].notes) {
+        attendanceDB[courseId].notes = {};
+      }
       if (!skipCloudSync) {
         await syncDatabaseFromCloud();
       }
@@ -1052,18 +1086,29 @@
                 else if (currentVal === "Absent") selectClass += " status-absent";
 
                 return `
+                  // Look up if a note exists for this specific dropdown
+                const sNotes = courseRecord.notes[studentId] || {};
+                const noteText = sNotes[sessionDate] || "";
+                const tooltipStr = noteText ? `title="${noteText.replace(/"/g, '&quot;')}"` : "";
+                const dogEarHtml = noteText ? `<div class="dog-ear"></div>` : "";
+
+                return `
                   <td class="session-date-cell ws-hide-on-summary-print">
-                    <select class="${selectClass}" 
-                      ${!canEdit ? 'disabled' : ''} 
-                      onchange="updateStatus('${courseId}', '${student.id}', '${sessionDate}', this.value)">
-                      <option value="" ${currentVal === '' ? 'selected' : ''}>Choose one</option>
-                      <option value="Present" ${currentVal === 'Present' ? 'selected' : ''}>Present</option>
-                      <option value="Absent" ${currentVal === 'Absent' ? 'selected' : ''}>Absent</option>
-                      <option value="Late" ${currentVal === 'Late' ? 'selected' : ''}>Late</option>
-                      <option value="Joined online" ${currentVal === 'Joined online' ? 'selected' : ''}>Joined online</option>
-                      <option value="Absent Informed" ${currentVal === 'Absent Informed' ? 'selected' : ''}>Absent Informed</option>
-                    </select>
+                    <div class="cell-wrapper" ${tooltipStr} oncontextmenu="event.preventDefault(); openQuickNoteModal('${courseId}', '${studentId}', '${sessionDate}');">
+                      ${dogEarHtml}
+                      <select class="${selectClass}" 
+                        ${!canEdit ? 'disabled' : ''} 
+                        onchange="updateStatus('${courseId}', '${studentId}', '${sessionDate}', this.value)">
+                        <option value="" ${currentVal === '' ? 'selected' : ''}>Choose one</option>
+                        <option value="Present" ${currentVal === 'Present' ? 'selected' : ''}>Present</option>
+                        <option value="Absent" ${currentVal === 'Absent' ? 'selected' : ''}>Absent</option>
+                        <option value="Late" ${currentVal === 'Late' ? 'selected' : ''}>Late</option>
+                        <option value="Joined online" ${currentVal === 'Joined online' ? 'selected' : ''}>Joined online</option>
+                        <option value="Absent Informed" ${currentVal === 'Absent Informed' ? 'selected' : ''}>Absent Informed</option>
+                      </select>
+                    </div>
                   </td>
+                `;
                 `;
               }).join('')
             }
@@ -1466,6 +1511,56 @@
         dispatchCloudMutation(courseId);
         renderAttendanceSheet(courseId, true);
       }
+    }
+    function openQuickNoteModal(courseId, studentId, sessionDate) {
+      // Prevent opening if the user doesn't have edit access
+      const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(courseId);
+      if (!canEdit) return false;
+
+      currentNoteContext = { courseId, studentId, sessionDate };
+      const courseRecord = attendanceDB[courseId];
+      
+      let existingNote = "";
+      if (courseRecord.notes && courseRecord.notes[studentId] && courseRecord.notes[studentId][sessionDate]) {
+        existingNote = courseRecord.notes[studentId][sessionDate];
+      }
+
+      document.getElementById("quick-note-input").value = existingNote;
+      document.getElementById("btn-delete-note").style.display = existingNote ? "block" : "none";
+      document.getElementById("quick-note-modal").style.display = "flex";
+      document.getElementById("quick-note-input").focus();
+    }
+
+    function closeQuickNoteModal() {
+      document.getElementById("quick-note-modal").style.display = "none";
+      currentNoteContext = { courseId: null, studentId: null, sessionDate: null };
+    }
+
+    function saveQuickNote() {
+      const { courseId, studentId, sessionDate } = currentNoteContext;
+      if (!courseId) return;
+
+      const noteText = document.getElementById("quick-note-input").value.trim();
+      const courseRecord = attendanceDB[courseId];
+      
+      if (!courseRecord.notes) courseRecord.notes = {};
+      if (!courseRecord.notes[studentId]) courseRecord.notes[studentId] = {};
+
+      if (noteText === "") {
+         delete courseRecord.notes[studentId][sessionDate]; // Clean up if empty
+      } else {
+         courseRecord.notes[studentId][sessionDate] = noteText;
+      }
+
+      saveAttendanceDBLocally();
+      dispatchCloudMutation(courseId);
+      closeQuickNoteModal();
+      renderAttendanceSheet(courseId, true);
+    }
+
+    function deleteQuickNote() {
+      document.getElementById("quick-note-input").value = "";
+      saveQuickNote(); // Saving an empty string triggers the delete logic
     }
   </script>
 </body>
