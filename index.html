@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Compass Attendance System 2.4.1</title>
+  <title>Compass Attendance System 2.4.2</title>
   
   <style>
     :root {
@@ -478,7 +478,7 @@
       color: #fff;
       padding: 10px 14px;
       border-radius: 6px;
-      font-size: 1rem; /* YOU CAN CHANGE THIS VALUE HERE */
+      font-size: 1rem; /* Preserved 1rem sizing as requested */
       font-weight: 500;
       white-space: pre-wrap;
       min-width: 200px;
@@ -565,7 +565,7 @@
 
       <div class="login-footer-credits">
         Developed by <span class="author-name">MD Sezadur Rahman</span>
-        <div class="login-footer-version">Version 2.4.1</div>
+        <div class="login-footer-version">Version 2.4.2</div>
       </div>
     </div>
   </div>
@@ -683,10 +683,10 @@
         <input type="hidden" id="profile-rating-select" value="gray">
       </div>
       
-      <textarea id="profile-note-input" class="ws-textarea" style="min-height: 80px; margin-bottom: 12px;" placeholder="e.g. Needs extra help with vocabulary..."></textarea>
+      <textarea id="profile-note-input" class="ws-textarea" style="min-height: 80px; margin-bottom: 12px;" placeholder="e.g. Needs extra help with vocabulary... (Optional)"></textarea>
       
       <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
-        <button class="ws-btn ws-btn-outline ws-btn-sm" id="btn-delete-profile" style="color: var(--status-red-text); border-color: transparent; margin-right: auto;" onclick="deleteStudentProfile()">Remove Note</button>
+        <button class="ws-btn ws-btn-outline ws-btn-sm" id="btn-delete-profile" style="color: var(--status-red-text); border-color: transparent; margin-right: auto;" onclick="deleteStudentProfile()">Remove Tag/Note</button>
         <button class="ws-btn ws-btn-outline ws-btn-sm" onclick="closeStudentProfileModal()">Cancel</button>
         <button class="ws-btn ws-btn-primary ws-btn-sm" onclick="saveStudentProfile()">Save Profile</button>
       </div>
@@ -1432,14 +1432,18 @@
           // System Admin sees ALL notes mapped to their corresponding teachers
           Object.keys(allNotesForStudent).forEach(tUsername => {
             const noteObj = allNotesForStudent[tUsername];
-            combinedNoteText += `[${tUsername}]: ${noteObj.note}\n`;
+            if (noteObj.note.trim() !== "") {
+              combinedNoteText += `[${tUsername}]: ${noteObj.note}\n`;
+            }
             dotsHtml += `<div class="profile-dot dot-${noteObj.rating}"></div>`;
           });
         } else if (currentUser.role !== 'admin') { 
           // Instructors strictly see ONLY their own private notes
           const myNote = allNotesForStudent[currentUser.username];
           if (myNote) {
-            combinedNoteText = myNote.note;
+            if (myNote.note.trim() !== "") {
+              combinedNoteText = myNote.note;
+            }
             dotsHtml += `<div class="profile-dot dot-${myNote.rating}"></div>`;
           }
         }
@@ -2099,16 +2103,18 @@
       document.getElementById("profile-student-name").innerText = studentName;
       
       const courseRecord = attendanceDB[courseId];
-      let existingRating = "gray"; // Changed default to gray
+      let existingRating = "gray"; // Default
       let existingNote = "";
+      let hasProfile = false;
       
       if (courseRecord.teacherNotes && courseRecord.teacherNotes[studentId] && courseRecord.teacherNotes[studentId][currentUser.username]) {
         existingRating = courseRecord.teacherNotes[studentId][currentUser.username].rating;
         existingNote = courseRecord.teacherNotes[studentId][currentUser.username].note;
+        hasProfile = true;
       }
       
       document.getElementById("profile-note-input").value = existingNote;
-      document.getElementById("btn-delete-profile").style.display = existingNote ? "block" : "none";
+      document.getElementById("btn-delete-profile").style.display = hasProfile ? "block" : "none";
       
       selectProfileColor(existingRating);
       
@@ -2120,7 +2126,7 @@
       document.getElementById("student-profile-modal").style.display = "none"; 
     }
 
-    function saveStudentProfile() {
+    function saveStudentProfile(isDelete = false) {
       const { courseId, studentId } = currentProfileContext;
       if (!courseId) return;
       
@@ -2131,8 +2137,8 @@
       if (!courseRecord.teacherNotes) courseRecord.teacherNotes = {};
       if (!courseRecord.teacherNotes[studentId]) courseRecord.teacherNotes[studentId] = {};
       
-      // If empty, delete the profile entry entirely to keep the DB clean
-      if (noteText === "") {
+      // If we clicked Remove Tag/Note, completely delete the object. Otherwise, save the color/text.
+      if (isDelete) {
         delete courseRecord.teacherNotes[studentId][currentUser.username];
       } else {
         courseRecord.teacherNotes[studentId][currentUser.username] = { rating, note: noteText };
@@ -2145,8 +2151,9 @@
     }
 
     function deleteStudentProfile() {
+      // Clear the inputs just in case, then run the save function in delete mode
       document.getElementById("profile-note-input").value = "";
-      saveStudentProfile();
+      saveStudentProfile(true);
     }
   </script>
 </body>
