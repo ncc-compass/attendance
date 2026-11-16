@@ -437,7 +437,8 @@
       .dossier-card { border: 1px solid #000 !important; }
     }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <!-- SWAPPED: Removed SheetJS, added ExcelJS for native formatting support -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 </head>
 <body>
 
@@ -1763,7 +1764,7 @@
     }
 
     // ==========================================
-    // SYSTEM BACKUP & EXPORT (EXCEL XLSX)
+    // SYSTEM BACKUP & EXPORT (EXCEL XLSX via ExcelJS)
     // ==========================================
     async function handleExportSelection(selectElement) {
       const cohortId = selectElement.value;
@@ -1771,7 +1772,7 @@
       
       selectElement.disabled = true;
       const originalText = selectElement.options[selectElement.selectedIndex].text;
-      selectElement.options[selectElement.selectedIndex].text = "Generating...";
+      selectElement.options[selectElement.selectedIndex].text = "Generating Excel...";
       
       try {
         await downloadCohortXLSX(cohortId);
@@ -1793,28 +1794,41 @@
       const cohort = APP_DATA.cohorts.find(c => c.id === cohortId);
       if (!cohort) throw new Error("Cohort data could not be found.");
 
-      // 2. Initialize a new Microsoft Excel Workbook
-      const wb = XLSX.utils.book_new();
+      // 2. Initialize a new native ExcelJS Workbook
+      const wb = new ExcelJS.Workbook();
 
       // 3. Loop through every course in this specific cohort to create Tabs
       const cohortCourses = cohort.courses || [];
-      
-      if (cohortCourses.length === 0) {
-        throw new Error("This cohort has no courses assigned to it yet.");
-      }
+      if (cohortCourses.length === 0) throw new Error("This cohort has no courses assigned to it yet.");
 
       cohortCourses.forEach((course, index) => {
         const courseRecord = attendanceDB[course.id] || { sessions: [], records: {} };
         const sessionsList = courseRecord.sessions || [];
         const studentList = course.students || [];
-        
-        // Build the Headers (Columns)
+
+        // Tab name (unique and clean)
+        let tabName = (course.name || `Course_${index}`).substring(0, 31).replace(/[\]\[*?:\/']/g, '');
+        const ws = wb.addWorksheet(tabName);
+
+        // Build Headers (Columns)
         const headers = ['Candidate ID', 'Student Name'];
         sessionsList.forEach(date => headers.push(formatClassDate(date)));
         headers.push('Attendance %');
 
-        // Create a 2D Array for the sheet data, starting with the headers
-        const sheetData = [headers];
+        // Apply Header Formatting
+        const headerRow = ws.addRow(headers);
+        headerRow.height = 22; 
+        headerRow.eachCell((cell) => {
+          cell.font = { bold: true, size: 13 }; // 2pt larger than default 11
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB7E1CD' } };
+          cell.border = {
+            top: {style:'thin', color: {argb:'FFCCCCCC'}},
+            left: {style:'thin', color: {argb:'FFCCCCCC'}},
+            bottom: {style:'thin', color: {argb:'FFCCCCCC'}},
+            right: {style:'thin', color: {argb:'FFCCCCCC'}}
+          };
+        });
 
         // Fill student rows
         studentList.forEach(student => {
@@ -1822,13 +1836,14 @@
           let attendedCount = 0;
           let markedCount = 0;
           
-          const row = [student.id, student.name];
+          const rowData = [student.id, student.name];
           
           sessionsList.forEach(date => {
-            const status = sRecords[date] || "";
-            row.push(status);
+            let status = sRecords[date] || "";
+            if (status === "") status = "N/A"; // Unmarked gets "N/A"
+            rowData.push(status);
             
-            if (status !== "") {
+            if (status !== "N/A") {
               markedCount++;
               if (status === "Present" || status === "Late" || status === "Joined online") {
                 attendedCount++;
@@ -1840,24 +1855,79 @@
           if (markedCount > 0) {
              rateStr = Math.round((attendedCount / markedCount) * 100) + "%";
           }
-          row.push(rateStr);
+          rowData.push(rateStr);
           
-          sheetData.push(row);
+          const dataRow = ws.addRow(rowData);
+          
+          // Apply Cell Formatting to Data Rows
+          dataRow.eachCell((cell, colNumber) => {
+             // Add a clean border to all data cells
+             cell.border = {
+               top: {style:'thin', color: {argb:'FFEEEEEE'}},
+               left: {style:'thin', color: {argb:'FFEEEEEE'}},
+               bottom: {style:'thin', color: {argb:'FFEEEEEE'}},
+               right: {style:'thin', color: {argb:'FFEEEEEE'}}
+             };
+
+             if (colNumber === 1 || colNumber === 2) {
+                // Names and IDs are Left Aligned
+                cell.alignment = { horizontal: 'left', vertical: 'middle' };
+             } else if (colNumber === headers.length) {
+                // Percentage is normally middle aligned
+                cell.alignment = { horizontal: 'center', vertical: 'middle' };
+             } else {
+                // Attendance Info is middle aligned
+                cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                
+                const val = cell.value;
+                let bgColor = "FFFFFFFF"; // Default White
+                let fontColor = "FF000000"; // Default Black
+                let isBold = false;
+
+                if (val === "Present") { 
+                  bgColor = "FFD4EDBC"; 
+                } else if (val === "Absent") { 
+                  bgColor = "FFFFCFC9"; 
+                } else if (val === "Absent Informed") { 
+                  bgColor = "FFFFE570"; 
+                } else if (val === "Late") { 
+                  bgColor = "FF753800"; fontColor = "FFFFFFFF"; // White text applied to dark brown
+                } else if (val === "Joined online") { 
+                  bgColor = "FF34A853"; fontColor = "FFFFFFFF"; // White text applied to dark green
+                } else if (val === "N/A") { 
+                  isBold = true; 
+                }
+
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+                cell.font = { color: { argb: fontColor }, bold: isBold };
+             }
+          });
         });
 
-        // Convert the 2D array to an actual Excel worksheet
-        const ws = XLSX.utils.aoa_to_sheet(sheetData);
-        
-        // Excel tab names cannot exceed 31 characters, cannot contain specific symbols, and MUST BE UNIQUE
-        // We use course.name (e.g., "EAP") to guarantee unique, clean tab names
-        let tabName = (course.name || `Course_${index}`).substring(0, 31).replace(/[\]\[*?:\/']/g, '');
-        
-        XLSX.utils.book_append_sheet(wb, ws, tabName);
+        // Dynamically Adjust Column Widths based on content length
+        ws.columns.forEach(column => {
+          let maxLength = 0;
+          column.eachCell({ includeEmpty: true }, cell => {
+            let columnLength = cell.value ? cell.value.toString().length : 10;
+            if (columnLength > maxLength) {
+              maxLength = columnLength;
+            }
+          });
+          column.width = maxLength < 10 ? 10 : maxLength + 2; 
+        });
       });
 
-      // 4. Trigger the download!
-      const fileName = `Compass_Attendance_${cohort.name.replace(/[^a-zA-Z0-9 -]/g, '')}.xlsx`;
-      XLSX.writeFile(wb, fileName);
+      // 4. Trigger the exact file download
+      const buffer = await wb.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const link = document.createElement("a");
+      const url = URL.createObjectURL(blob);
+      link.setAttribute("href", url);
+      link.setAttribute("download", `Compass_Attendance_${cohort.name.replace(/[^a-zA-Z0-9 -]/g, '')}.xlsx`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
     }
   </script>
 </body>
