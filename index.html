@@ -1773,7 +1773,12 @@
       const originalText = selectElement.options[selectElement.selectedIndex].text;
       selectElement.options[selectElement.selectedIndex].text = "Generating...";
       
-      await downloadCohortXLSX(cohortId);
+      try {
+        await downloadCohortXLSX(cohortId);
+      } catch (err) {
+        console.error("Excel Generation Error:", err);
+        alert("Export failed: " + err.message + "\nCheck console for details.");
+      }
       
       // Reset dropdown quietly
       selectElement.disabled = false;
@@ -1786,32 +1791,40 @@
       await syncDatabaseFromCloud();
 
       const cohort = APP_DATA.cohorts.find(c => c.id === cohortId);
-      if (!cohort) return;
+      if (!cohort) throw new Error("Cohort data could not be found.");
 
       // 2. Initialize a new Microsoft Excel Workbook
       const wb = XLSX.utils.book_new();
 
       // 3. Loop through every course in this specific cohort to create Tabs
-      cohort.courses.forEach(course => {
+      const cohortCourses = cohort.courses || [];
+      
+      if (cohortCourses.length === 0) {
+        throw new Error("This cohort has no courses assigned to it yet.");
+      }
+
+      cohortCourses.forEach((course, index) => {
         const courseRecord = attendanceDB[course.id] || { sessions: [], records: {} };
+        const sessionsList = courseRecord.sessions || [];
+        const studentList = course.students || [];
         
         // Build the Headers (Columns)
         const headers = ['Candidate ID', 'Student Name'];
-        courseRecord.sessions.forEach(date => headers.push(formatClassDate(date)));
+        sessionsList.forEach(date => headers.push(formatClassDate(date)));
         headers.push('Attendance %');
 
         // Create a 2D Array for the sheet data, starting with the headers
         const sheetData = [headers];
 
         // Fill student rows
-        course.students.forEach(student => {
-          const sRecords = courseRecord.records[student.id] || {};
+        studentList.forEach(student => {
+          const sRecords = courseRecord.records ? (courseRecord.records[student.id] || {}) : {};
           let attendedCount = 0;
           let markedCount = 0;
           
           const row = [student.id, student.name];
           
-          courseRecord.sessions.forEach(date => {
+          sessionsList.forEach(date => {
             const status = sRecords[date] || "";
             row.push(status);
             
@@ -1835,8 +1848,10 @@
         // Convert the 2D array to an actual Excel worksheet
         const ws = XLSX.utils.aoa_to_sheet(sheetData);
         
-        // Excel tab names cannot exceed 31 characters or contain specific symbols
-        let tabName = (COURSE_CATALOG[course.id]?.stream || course.name).substring(0, 31).replace(/[\]\[*?:\/']/g, '');
+        // Excel tab names cannot exceed 31 characters, cannot contain specific symbols, and MUST BE UNIQUE
+        // We use course.name (e.g., "EAP") to guarantee unique, clean tab names
+        let tabName = (course.name || `Course_${index}`).substring(0, 31).replace(/[\]\[*?:\/']/g, '');
+        
         XLSX.utils.book_append_sheet(wb, ws, tabName);
       });
 
