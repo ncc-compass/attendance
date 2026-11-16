@@ -437,6 +437,7 @@
       .dossier-card { border: 1px solid #000 !important; }
     }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -448,7 +449,10 @@
     <div id="user-meta-bar" class="ws-user-meta" style="display: none;">
       <!-- THE SYSTEM ADMIN MASTER BUTTONS (Only visible to 'sezad') -->
       <button id="btn-admin-dash" class="ws-btn ws-btn-outline" style="display:none; color: var(--ielts-red); border-color: var(--ielts-red); font-weight: 800;" onclick="renderAdminDashboard()">⚙️ SYSTEM ADMIN</button>
-      <button id="btn-admin-export" class="ws-btn ws-btn-outline" style="display:none; border-color: var(--status-green-text); color: var(--status-green-text); font-weight: 700;" onclick="downloadSystemBackupCSV()">📥 EXPORT CSV BACKUP</button>
+      <select id="btn-admin-export" class="ws-btn ws-btn-outline" style="display:none; border-color: var(--status-green-text); color: var(--status-green-text); font-weight: 700; cursor: pointer; outline: none; background: var(--surface-white);" onchange="handleExportSelection(this)">
+        <option value="">📥 EXPORT .XLSX BACKUP</option>
+        <!-- Cohorts will be dynamically injected here -->
+      </select>
       
       <strong class="ws-user-name" id="display-user-name" style="font-size: 0.95rem; color: var(--text-dark);"></strong>
       <button class="ws-btn ws-btn-outline" onclick="handleLogout()">Sign Out</button>
@@ -625,6 +629,16 @@
           USERS = configData.users;
           COURSE_CATALOG = configData.catalog || {};
           APP_DATA.cohorts = configData.cohorts || [];
+          
+          // Populate the Excel Export Dropdown
+          const exportSelect = document.getElementById("btn-admin-export");
+          if (exportSelect) {
+            let html = `<option value="">📥 EXPORT .XLSX BACKUP</option>`;
+            APP_DATA.cohorts.forEach(c => {
+              html += `<option value="${c.id}">Export ${c.name}</option>`;
+            });
+            exportSelect.innerHTML = html;
+          }
         }
       } catch (err) {
         console.error("Failed to load system architecture from MongoDB.", err);
@@ -1749,62 +1763,86 @@
     }
 
     // ==========================================
-    // SYSTEM BACKUP & EXPORT
+    // SYSTEM BACKUP & EXPORT (EXCEL XLSX)
     // ==========================================
-    async function downloadSystemBackupCSV() {
+    async function handleExportSelection(selectElement) {
+      const cohortId = selectElement.value;
+      if (!cohortId) return; // User selected the placeholder
+      
+      selectElement.disabled = true;
+      const originalText = selectElement.options[selectElement.selectedIndex].text;
+      selectElement.options[selectElement.selectedIndex].text = "Generating...";
+      
+      await downloadCohortXLSX(cohortId);
+      
+      // Reset dropdown quietly
+      selectElement.disabled = false;
+      selectElement.options[selectElement.selectedIndex].text = originalText;
+      selectElement.value = "";
+    }
+
+    async function downloadCohortXLSX(cohortId) {
       // 1. Ensure we have the latest data before exporting
       await syncDatabaseFromCloud();
-      
-      let csvContent = "Cohort,Course Name,Student ID,Student Name,Session Date,Attendance Status,Total Sessions,Attended,Attendance Rate %\n";
 
-      APP_DATA.cohorts.forEach(cohort => {
-        cohort.courses.forEach(course => {
-          const courseRecord = attendanceDB[course.id];
-          if (!courseRecord || !courseRecord.sessions || courseRecord.sessions.length === 0) return;
+      const cohort = APP_DATA.cohorts.find(c => c.id === cohortId);
+      if (!cohort) return;
 
-          course.students.forEach(student => {
-            const sRecords = courseRecord.records[student.id] || {};
-            let attendedCount = 0;
-            let markedCount = 0;
+      // 2. Initialize a new Microsoft Excel Workbook
+      const wb = XLSX.utils.book_new();
 
-            // Loop through each session for this student
-            courseRecord.sessions.forEach(date => {
-              const status = sRecords[date] || "Unmarked";
-              
-              if (status !== "Unmarked" && status !== "") {
-                markedCount++;
-                if (status === "Present" || status === "Late" || status === "Joined online") {
-                  attendedCount++;
-                }
+      // 3. Loop through every course in this specific cohort to create Tabs
+      cohort.courses.forEach(course => {
+        const courseRecord = attendanceDB[course.id] || { sessions: [], records: {} };
+        
+        // Build the Headers (Columns)
+        const headers = ['Candidate ID', 'Student Name'];
+        courseRecord.sessions.forEach(date => headers.push(formatClassDate(date)));
+        headers.push('Attendance %');
+
+        // Create a 2D Array for the sheet data, starting with the headers
+        const sheetData = [headers];
+
+        // Fill student rows
+        course.students.forEach(student => {
+          const sRecords = courseRecord.records[student.id] || {};
+          let attendedCount = 0;
+          let markedCount = 0;
+          
+          const row = [student.id, student.name];
+          
+          courseRecord.sessions.forEach(date => {
+            const status = sRecords[date] || "";
+            row.push(status);
+            
+            if (status !== "") {
+              markedCount++;
+              if (status === "Present" || status === "Late" || status === "Joined online") {
+                attendedCount++;
               }
-
-              // Build the base row string, minus the final percentage
-              let rowBase = `"${cohort.name}","${course.name}","${student.id}","${student.name}","${formatClassDate(date)}","${status}","${courseRecord.sessions.length}","${attendedCount}"`;
-              
-              // Only add the percentage on the very last row for this student (to avoid clutter)
-              let isLastSession = date === courseRecord.sessions[courseRecord.sessions.length - 1];
-              let rateStr = "N/A";
-              
-              if (isLastSession && markedCount > 0) {
-                 rateStr = Math.round((attendedCount / markedCount) * 100) + "%";
-              }
-              
-              csvContent += `${rowBase},"${rateStr}"\n`;
-            });
+            }
           });
+
+          let rateStr = "N/A";
+          if (markedCount > 0) {
+             rateStr = Math.round((attendedCount / markedCount) * 100) + "%";
+          }
+          row.push(rateStr);
+          
+          sheetData.push(row);
         });
+
+        // Convert the 2D array to an actual Excel worksheet
+        const ws = XLSX.utils.aoa_to_sheet(sheetData);
+        
+        // Excel tab names cannot exceed 31 characters or contain specific symbols
+        let tabName = (COURSE_CATALOG[course.id]?.stream || course.name).substring(0, 31).replace(/[\]\[*?:\/']/g, '');
+        XLSX.utils.book_append_sheet(wb, ws, tabName);
       });
 
-      // Generate the downloadable file
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-      const link = document.createElement("a");
-      const url = URL.createObjectURL(blob);
-      link.setAttribute("href", url);
-      link.setAttribute("download", `Compass_System_Backup_${new Date().toISOString().split('T')[0]}.csv`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      // 4. Trigger the download!
+      const fileName = `Compass_Attendance_${cohort.name.replace(/[^a-zA-Z0-9 -]/g, '')}.xlsx`;
+      XLSX.writeFile(wb, fileName);
     }
   </script>
 </body>
