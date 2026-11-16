@@ -420,6 +420,19 @@
     .incident-log-item { border: 1px solid var(--border-light); background: var(--surface-alt); border-radius: 4px; padding: 12px 14px; margin-bottom: 10px; position: relative; }
     .incident-log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 
+    /* PRIVATE STUDENT PROFILE DOTS */
+    .profile-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      cursor: help;
+      border: 1px solid rgba(0, 0, 0, 0.15);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+    }
+    .dot-good { background-color: #d4edbc; }
+    .dot-average { background-color: #ffe570; }
+    .dot-bad { background-color: #ffcfc9; }
+
     @media print {
       body { background: #fff !important; color: #000 !important; }
       .ws-header, .ws-breadcrumbs, .ws-no-print, .ws-btn, .date-action-badge { display: none !important; }
@@ -437,7 +450,6 @@
       .dossier-card { border: 1px solid #000 !important; }
     }
   </style>
-  <!-- SWAPPED: Removed SheetJS, added ExcelJS for native formatting support -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
 </head>
 <body>
@@ -581,6 +593,31 @@
         <button class="ws-btn ws-btn-outline ws-btn-sm" id="btn-delete-note" style="color: var(--status-red-text); border-color: transparent; margin-right: auto;" onclick="deleteQuickNote()">Remove Note</button>
         <button class="ws-btn ws-btn-outline ws-btn-sm" onclick="closeQuickNoteModal()">Cancel</button>
         <button class="ws-btn ws-btn-primary ws-btn-sm" onclick="saveQuickNote()">Save Note</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- PRIVATE PROFILE MODAL -->
+  <div id="student-profile-modal" class="ws-modal-overlay" style="display: none;">
+    <div class="ws-modal" style="max-width: 380px; padding: 20px;">
+      <h2 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 8px; color: var(--text-dark);">Candidate Private Profile</h2>
+      <p style="font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px;">Add your personal, private observations for <strong id="profile-student-name" style="color:var(--text-dark);"></strong> in this course.</p>
+      
+      <div class="ws-input-group">
+        <label>Performance Rating</label>
+        <select id="profile-rating-select" class="ws-select" style="width: 100%;">
+          <option value="good">Good (Green Indicator)</option>
+          <option value="average">Average (Yellow Indicator)</option>
+          <option value="bad">Bad (Red Indicator)</option>
+        </select>
+      </div>
+      
+      <textarea id="profile-note-input" class="ws-textarea" style="min-height: 80px; margin-bottom: 12px;" placeholder="e.g. Needs extra help with vocabulary..."></textarea>
+      
+      <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
+        <button class="ws-btn ws-btn-outline ws-btn-sm" id="btn-delete-profile" style="color: var(--status-red-text); border-color: transparent; margin-right: auto;" onclick="deleteStudentProfile()">Remove Note</button>
+        <button class="ws-btn ws-btn-outline ws-btn-sm" onclick="closeStudentProfileModal()">Cancel</button>
+        <button class="ws-btn ws-btn-primary ws-btn-sm" onclick="saveStudentProfile()">Save Profile</button>
       </div>
     </div>
   </div>
@@ -1313,6 +1350,27 @@
         if (!courseRecord.records[student.id]) courseRecord.records[student.id] = {};
         const sRecords = courseRecord.records[student.id];
 
+        // Process Private Teacher Profile Notes
+        if (!courseRecord.teacherNotes) courseRecord.teacherNotes = {};
+        const allNotesForStudent = courseRecord.teacherNotes[student.id] || {};
+        
+        let dotsHtml = '';
+        if (currentUser.username === 'sezad') {
+          // System Admin sees ALL notes mapped to their corresponding teachers
+          Object.keys(allNotesForStudent).forEach(tUsername => {
+            const noteObj = allNotesForStudent[tUsername];
+            const titleText = `[${tUsername}]: ${noteObj.note}`.replace(/"/g, '&quot;');
+            dotsHtml += `<div class="profile-dot dot-${noteObj.rating}" title="${titleText}"></div>`;
+          });
+        } else if (currentUser.role !== 'admin') { 
+          // Instructors strictly see ONLY their own private notes
+          const myNote = allNotesForStudent[currentUser.username];
+          if (myNote) {
+            const titleText = myNote.note.replace(/"/g, '&quot;');
+            dotsHtml += `<div class="profile-dot dot-${myNote.rating}" title="${titleText}"></div>`;
+          }
+        }
+
         let attendedCount = 0; let markedSessionsCount = 0;
         courseRecord.sessions.forEach(sessionDate => {
           const status = sRecords[sessionDate] || "";
@@ -1333,7 +1391,12 @@
         html += `
           <tr>
             <td class="sticky-col-id" style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">${student.id}</td>
-            <td class="sticky-col-name"><strong>${student.name}</strong></td>
+            <td class="sticky-col-name" style="cursor: context-menu;" oncontextmenu="event.preventDefault(); openStudentProfileModal('${courseId}', '${student.id}', '${student.name.replace(/'/g, "\\'")}');">
+              <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                <strong>${student.name}</strong>
+                <div style="display: flex; gap: 4px;">${dotsHtml}</div>
+              </div>
+            </td>
             ${courseRecord.sessions.map(sessionDate => {
                 const currentVal = sRecords[sessionDate] || "";
                 let selectClass = "ws-select";
@@ -1928,6 +1991,70 @@
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+    }
+
+    // ==========================================
+    // TEACHER-PRIVATE STUDENT PROFILES
+    // ==========================================
+    let currentProfileContext = { courseId: null, studentId: null };
+
+    function openStudentProfileModal(courseId, studentId, studentName) {
+      // Standard Admins are strictly blocked from viewing or adding private profiles
+      if (currentUser.role === 'admin' && currentUser.username !== 'sezad') {
+        return; 
+      }
+      
+      currentProfileContext = { courseId, studentId };
+      document.getElementById("profile-student-name").innerText = studentName;
+      
+      const courseRecord = attendanceDB[courseId];
+      let existingRating = "good";
+      let existingNote = "";
+      
+      if (courseRecord.teacherNotes && courseRecord.teacherNotes[studentId] && courseRecord.teacherNotes[studentId][currentUser.username]) {
+        existingRating = courseRecord.teacherNotes[studentId][currentUser.username].rating;
+        existingNote = courseRecord.teacherNotes[studentId][currentUser.username].note;
+      }
+      
+      document.getElementById("profile-rating-select").value = existingRating;
+      document.getElementById("profile-note-input").value = existingNote;
+      document.getElementById("btn-delete-profile").style.display = existingNote ? "block" : "none";
+      
+      document.getElementById("student-profile-modal").style.display = "flex";
+      document.getElementById("profile-note-input").focus();
+    }
+
+    function closeStudentProfileModal() { 
+      document.getElementById("student-profile-modal").style.display = "none"; 
+    }
+
+    function saveStudentProfile() {
+      const { courseId, studentId } = currentProfileContext;
+      if (!courseId) return;
+      
+      const rating = document.getElementById("profile-rating-select").value;
+      const noteText = document.getElementById("profile-note-input").value.trim();
+      
+      const courseRecord = attendanceDB[courseId];
+      if (!courseRecord.teacherNotes) courseRecord.teacherNotes = {};
+      if (!courseRecord.teacherNotes[studentId]) courseRecord.teacherNotes[studentId] = {};
+      
+      // If empty, delete the profile entry entirely to keep the DB clean
+      if (noteText === "") {
+        delete courseRecord.teacherNotes[studentId][currentUser.username];
+      } else {
+        courseRecord.teacherNotes[studentId][currentUser.username] = { rating, note: noteText };
+      }
+      
+      saveAttendanceDBLocally();
+      dispatchCloudMutation(courseId);
+      closeStudentProfileModal();
+      renderAttendanceSheet(courseId, true);
+    }
+
+    function deleteStudentProfile() {
+      document.getElementById("profile-note-input").value = "";
+      saveStudentProfile();
     }
   </script>
 </body>
