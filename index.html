@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Compass Attendance System 2.4.2</title>
+  <title>Compass Attendance System 2.5.0</title>
   
   <style>
     :root {
@@ -168,6 +168,21 @@
     .session-date-cell { text-align: center; padding: 8px 14px !important; }
     .attendance-rate-th, .attendance-rate-cell { text-align: center; padding: 10px 14px !important; }
     .session-date-label { display: inline-block; vertical-align: middle; font-weight: 700; color: var(--text-muted); }
+    
+    /* OVERALL SESSION NOTE INDICATOR */
+    .session-note-indicator {
+      font-size: 0.7rem; 
+      color: var(--ielts-red); 
+      margin-top: 4px; 
+      cursor: help;
+      display: inline-flex;
+      align-items: center;
+      gap: 3px;
+      background: var(--ielts-red-soft);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid #fca5a5;
+    }
 
     .date-action-badge {
       position: absolute;
@@ -478,7 +493,7 @@
       color: #fff;
       padding: 10px 14px;
       border-radius: 6px;
-      font-size: 1rem; /* Preserved 1rem sizing as requested */
+      font-size: 1rem; 
       font-weight: 500;
       white-space: pre-wrap;
       min-width: 200px;
@@ -565,7 +580,7 @@
 
       <div class="login-footer-credits">
         Developed by <span class="author-name">MD Sezadur Rahman</span>
-        <div class="login-footer-version">Version 2.4.2</div>
+        <div class="login-footer-version">Version 2.5.0</div>
       </div>
     </div>
   </div>
@@ -579,6 +594,12 @@
         <label>Session Date</label>
         <input type="date" id="calendar-date-input" class="ws-input" style="font-size: 0.95rem;">
       </div>
+      
+      <div class="ws-input-group" id="calendar-note-group">
+        <label>Overall Session Note (Optional)</label>
+        <textarea id="calendar-session-note" class="ws-textarea" style="min-height: 60px;" placeholder="e.g. Makeup class for Monday..."></textarea>
+      </div>
+
       <div id="calendar-error" style="color: var(--status-red-text); font-size: 0.8rem; margin-bottom: 12px; display: none;"></div>
       
       <div style="display: flex; gap: 8px; justify-content: flex-end;">
@@ -718,6 +739,9 @@
     let currentEditingDate = null;
     let currentNoteContext = { courseId: null, studentId: null, sessionDate: null };
     let attendanceDB = {};
+    
+    // SCROLL STATE PRESERVATION
+    let savedTableScrollLeft = 0;
 
     // ADMIN DASHBOARD STATE VARIABLES
     let adminWorkingUsers = [];
@@ -1356,6 +1380,12 @@
     }
 
     async function renderAttendanceSheet(courseId, skipCloudSync = false) {
+      // 1. CAPTURE CURRENT SCROLL POSITION BEFORE RE-RENDERING
+      const currentContainer = document.querySelector('.ws-table-container');
+      if (currentContainer && currentModalCourseId === null) {
+        savedTableScrollLeft = currentContainer.scrollLeft;
+      }
+
       saveViewState("sheet", courseId); 
       if (!skipCloudSync) await syncDatabaseFromCloud();
 
@@ -1373,6 +1403,7 @@
       if (!attendanceDB[courseId]) attendanceDB[courseId] = { sessions: [], records: {}, incidents: {} };
       if (!attendanceDB[courseId].incidents) attendanceDB[courseId].incidents = {};
       if (!attendanceDB[courseId].notes) attendanceDB[courseId].notes = {};
+      if (!attendanceDB[courseId].sessionNotes) attendanceDB[courseId].sessionNotes = {}; // New Overall Note Support
 
       const courseRecord = attendanceDB[courseId];
       const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(courseId);
@@ -1398,18 +1429,24 @@
                   <tr>
                     <th class="sticky-col-id">Candidate ID</th>
                     <th class="sticky-col-name">Student Full Name</th>
-                    ${courseRecord.sessions.map(s => `
+                    ${courseRecord.sessions.map(s => {
+                      // Session Overall Note Indicator
+                      const sNote = courseRecord.sessionNotes[s] || "";
+                      const sNoteHtml = sNote ? `<div class="session-note-indicator" title="${sNote.replace(/"/g, '&quot;')}">📝 Note</div>` : '';
+
+                      return `
                       <th class="session-date-th ws-hide-on-summary-print">
                         <span class="session-date-label">${formatClassDate(s)}</span>
+                        <br>${sNoteHtml}
                         ${canEdit ? `
                           <div class="date-action-badge ws-no-print" onclick="event.stopPropagation()">
                             <button type="button" class="badge-icon-btn btn-quick" title="Mark Unmarked as Present" onclick="event.stopPropagation(); markAllPresent('${courseId}', '${s}')"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></button>
-                            <button type="button" class="badge-icon-btn btn-edit" title="Edit Session Date" onclick="event.stopPropagation(); openEditSessionModal('${courseId}', '${s}')"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
+                            <button type="button" class="badge-icon-btn btn-edit" title="Edit Session Date & Notes" onclick="event.stopPropagation(); openEditSessionModal('${courseId}', '${s}')"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
                             <button type="button" class="badge-icon-btn btn-delete" title="Delete Session" onclick="event.stopPropagation(); deleteSession('${courseId}', '${s}')"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
                           </div>
                         ` : ''}
                       </th>
-                    `).join('')}
+                    `}).join('')}
                     <th class="attendance-rate-th">Attendance %</th>
                     <th class="ws-no-print ws-hide-on-summary-print" style="text-align: center;">Actions</th>
                   </tr>
@@ -1514,7 +1551,14 @@
           </tr>`;
       });
       html += `</tbody></table></div></div></div>`;
+      
       document.getElementById("app-view").innerHTML = html;
+
+      // 2. REAPPLY THE SCROLL POSITION INSTANTLY AFTER RENDERING
+      const newContainer = document.querySelector('.ws-table-container');
+      if (newContainer && savedTableScrollLeft > 0) {
+        newContainer.scrollLeft = savedTableScrollLeft;
+      }
     }
 
     function openCalendarModal(courseId) {
@@ -1523,16 +1567,22 @@
       document.getElementById("calendar-modal-desc").innerText = "Pick a class date from the calendar. Columns will be ordered chronologically.";
       document.getElementById("calendar-submit-btn").innerText = "Create Session";
       document.getElementById("calendar-date-input").value = new Date().toISOString().split('T')[0];
+      document.getElementById("calendar-session-note").value = "";
       document.getElementById("calendar-error").style.display = "none";
       document.getElementById("calendar-modal").style.display = "flex";
     }
 
     function openEditSessionModal(courseId, oldDate) {
       currentModalCourseId = courseId; currentEditingDate = oldDate;
-      document.getElementById("calendar-modal-title").innerText = "Edit Class Session Date";
-      document.getElementById("calendar-modal-desc").innerText = `Updating class date from ${formatClassDate(oldDate)}. Existing student attendance records will be preserved.`;
-      document.getElementById("calendar-submit-btn").innerText = "Update Date";
+      
+      const courseRecord = attendanceDB[courseId];
+      let existingSessionNote = (courseRecord.sessionNotes && courseRecord.sessionNotes[oldDate]) ? courseRecord.sessionNotes[oldDate] : "";
+
+      document.getElementById("calendar-modal-title").innerText = "Edit Class Session Date & Notes";
+      document.getElementById("calendar-modal-desc").innerText = `Updating details for ${formatClassDate(oldDate)}. Existing student attendance records will be preserved.`;
+      document.getElementById("calendar-submit-btn").innerText = "Update Session";
       document.getElementById("calendar-date-input").value = oldDate;
+      document.getElementById("calendar-session-note").value = existingSessionNote;
       document.getElementById("calendar-error").style.display = "none";
       document.getElementById("calendar-modal").style.display = "flex";
     }
@@ -1541,25 +1591,43 @@
 
     function confirmSessionDateAction() {
       const selectedDate = document.getElementById("calendar-date-input").value;
+      const sessionNoteText = document.getElementById("calendar-session-note").value.trim();
       const errEl = document.getElementById("calendar-error");
       const targetCourseId = currentModalCourseId;
+      
       if (!selectedDate) { errEl.innerText = "Please choose a valid date from the calendar."; errEl.style.display = "block"; return; }
+      
       if (!attendanceDB[targetCourseId]) attendanceDB[targetCourseId] = { sessions: [], records: {}, incidents: {} };
       const courseRecord = attendanceDB[targetCourseId];
+      if (!courseRecord.sessionNotes) courseRecord.sessionNotes = {}; // Ensure struct exists
 
       if (currentEditingDate) {
         if (selectedDate !== currentEditingDate && courseRecord.sessions.includes(selectedDate)) { errEl.innerText = `A class session already exists for ${formatClassDate(selectedDate)}.`; errEl.style.display = "block"; return; }
         const idx = courseRecord.sessions.indexOf(currentEditingDate);
         if (idx !== -1) courseRecord.sessions[idx] = selectedDate;
+        
+        // Migrate student records to new date
         Object.keys(courseRecord.records).forEach(stId => {
           if (courseRecord.records[stId][currentEditingDate] !== undefined) {
             courseRecord.records[stId][selectedDate] = courseRecord.records[stId][currentEditingDate];
             delete courseRecord.records[stId][currentEditingDate];
           }
         });
+
+        // Migrate overall session note to new date
+        if (sessionNoteText) {
+          courseRecord.sessionNotes[selectedDate] = sessionNoteText;
+        } else {
+          delete courseRecord.sessionNotes[selectedDate];
+        }
+        if (selectedDate !== currentEditingDate) delete courseRecord.sessionNotes[currentEditingDate];
+
       } else {
         if (courseRecord.sessions.includes(selectedDate)) { errEl.innerText = `A class session already exists for ${formatClassDate(selectedDate)}.`; errEl.style.display = "block"; return; }
         courseRecord.sessions.push(selectedDate);
+        
+        if (sessionNoteText) courseRecord.sessionNotes[selectedDate] = sessionNoteText;
+
         let studentList = [];
         if (activeCourse && activeCourse.id === targetCourseId) studentList = activeCourse.students;
         else {
@@ -1582,8 +1650,11 @@
       if (!confirm(`Are you sure you want to delete the class session on ${formatClassDate(sessionDate)}? All recorded attendance for this date will be permanently cleared.`)) return;
       const courseRecord = attendanceDB[courseId];
       if (!courseRecord) return;
+      
       courseRecord.sessions = courseRecord.sessions.filter(d => d !== sessionDate);
+      if (courseRecord.sessionNotes) delete courseRecord.sessionNotes[sessionDate];
       Object.keys(courseRecord.records).forEach(stId => delete courseRecord.records[stId][sessionDate]);
+      
       saveAttendanceDBLocally(); dispatchCloudMutation(courseId); renderAttendanceSheet(courseId, true);
     }
 
