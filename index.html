@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Compass Attendance System 2.5.0</title>
+  <title>Compass Attendance System 2.6.0</title>
   
   <style>
     :root {
@@ -162,7 +162,7 @@
       white-space: nowrap;
     }
     .ws-table tr:hover td { background-color: var(--ielts-red-soft); }
-    .ws-table tr:hover td.sticky-col-name { z-index: 4; } /* Elevates row cell context for tooltip */
+    .ws-table tr:hover td.sticky-col-name { z-index: 4; }
 
     .session-date-th { position: relative; text-align: center; padding: 10px 14px !important; }
     .session-date-cell { text-align: center; padding: 8px 14px !important; }
@@ -493,7 +493,7 @@
       color: #fff;
       padding: 10px 14px;
       border-radius: 6px;
-      font-size: 1rem; 
+      font-size: 1rem;
       font-weight: 500;
       white-space: pre-wrap;
       min-width: 200px;
@@ -580,7 +580,7 @@
 
       <div class="login-footer-credits">
         Developed by <span class="author-name">MD Sezadur Rahman</span>
-        <div class="login-footer-version">Version 2.5.0</div>
+        <div class="login-footer-version">Version 2.6.0</div>
       </div>
     </div>
   </div>
@@ -735,9 +735,10 @@
     let currentUser = null;
     let activeCohort = null;
     let activeCourse = null;
+    let currentModalCohortId = null;
     let currentModalCourseId = null;
     let currentEditingDate = null;
-    let currentNoteContext = { courseId: null, studentId: null, sessionDate: null };
+    let currentNoteContext = { cohortId: null, courseId: null, studentId: null, sessionDate: null };
     let attendanceDB = {};
     
     // SCROLL STATE PRESERVATION
@@ -748,6 +749,40 @@
     let adminWorkingStudents = [];
     let adminSelectedCohortId = "";
     let adminCohortName = "";
+
+    // -------------------------------------------------------------
+    // COHORT-ISOLATED STORAGE KEY & ZERO-LOSS CLONING ENGINE
+    // -------------------------------------------------------------
+    function getAttendanceKey(cohortId, courseId) {
+      return `${cohortId}__${courseId}`;
+    }
+
+    function getOrInitCourseRecord(cohortId, courseId) {
+      const key = getAttendanceKey(cohortId, courseId);
+      if (!attendanceDB[key]) {
+        // Safely clone legacy shared data if it exists (never deletes original legacy key)
+        if (attendanceDB[courseId]) {
+          attendanceDB[key] = JSON.parse(JSON.stringify(attendanceDB[courseId]));
+          saveAttendanceDBLocally();
+        } else {
+          attendanceDB[key] = {
+            sessions: [],
+            records: {},
+            incidents: {},
+            notes: {},
+            sessionNotes: {},
+            teacherNotes: {}
+          };
+        }
+      }
+      if (!attendanceDB[key].sessions) attendanceDB[key].sessions = [];
+      if (!attendanceDB[key].records) attendanceDB[key].records = {};
+      if (!attendanceDB[key].incidents) attendanceDB[key].incidents = {};
+      if (!attendanceDB[key].notes) attendanceDB[key].notes = {};
+      if (!attendanceDB[key].sessionNotes) attendanceDB[key].sessionNotes = {};
+      if (!attendanceDB[key].teacherNotes) attendanceDB[key].teacherNotes = {};
+      return attendanceDB[key];
+    }
 
     // -------------------------------------------------------------
     // CLOUD CONFIGURATION SYNC
@@ -782,8 +817,8 @@
       localStorage.setItem("IELTS_ATTENDANCE_DB", JSON.stringify(attendanceDB));
     }
 
-    function saveViewState(view, id = null) {
-      localStorage.setItem("COMPASS_VIEW_STATE", JSON.stringify({ view: view, id: id }));
+    function saveViewState(view, id = null, cohortId = null) {
+      localStorage.setItem("COMPASS_VIEW_STATE", JSON.stringify({ view: view, id: id, cohortId: cohortId }));
     }
 
     async function syncDatabaseFromCloud() {
@@ -803,14 +838,14 @@
       return false;
     }
 
-    function dispatchCloudMutation(courseId) {
-      if (!attendanceDB[courseId]) return;
+    function dispatchCloudMutation(dbKey) {
+      if (!attendanceDB[dbKey]) return;
       fetch(`${NODE_API_URL}/api/update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          courseId: courseId,
-          courseData: attendanceDB[courseId]
+          courseId: dbKey,
+          courseData: attendanceDB[dbKey]
         })
       }).catch(err => console.error("Cloud mutation failed:", err));
     }
@@ -867,7 +902,11 @@
             if (savedState.view === "admin" && currentUser.username === "sezad") {
               renderAdminDashboard();
             } else if (savedState.view === "sheet" && savedState.id) {
-              renderAttendanceSheet(savedState.id, true);
+              if (savedState.cohortId) {
+                renderAttendanceSheet(savedState.cohortId, savedState.id, true);
+              } else {
+                renderCohortsView();
+              }
             } else if (savedState.view === "courses" && savedState.id) {
               renderCoursesView(savedState.id);
             } else if (savedState.view === "summary" && savedState.id) {
@@ -1001,7 +1040,6 @@
       activeCohort = null; activeCourse = null;
       updateBreadcrumbs(); 
       
-      // Clone users for matrix editing
       adminWorkingUsers = JSON.parse(JSON.stringify(USERS));
       
       let html = `
@@ -1182,7 +1220,6 @@
       const cohort = APP_DATA.cohorts.find(c => c.id === cohortId);
       adminCohortName = cohort.name;
       
-      // Flatten the nested MongoDB structure into our flat pivot array
       const studentMap = {};
       cohort.courses.forEach(crs => {
         crs.students.forEach(st => {
@@ -1213,7 +1250,6 @@
       `;
 
       adminWorkingStudents.forEach((s, i) => {
-        // We lock the ID field for existing students to prevent "orphaning" their past attendance data
         const idReadonly = s.isNew ? '' : 'readonly title="Student ID cannot be changed in the matrix to protect existing attendance logs." style="background-color: var(--surface-alt);"';
         
         html += `
@@ -1269,7 +1305,6 @@
       const btn = document.getElementById("btn-save-cohort");
       btn.innerText = "Saving to Atlas..."; btn.disabled = true;
 
-      // The Translation Engine: Pivot Flat Array -> Nested MongoDB Structure
       const finalCourses = [];
       Object.keys(COURSE_CATALOG).forEach(courseId => {
          const studentsInCourse = adminWorkingStudents
@@ -1310,7 +1345,7 @@
     }
 
     // ==========================================
-    // NORMAL FRONTEND VIEWS (Below here is unchanged)
+    // NORMAL FRONTEND VIEWS
     // ==========================================
 
     function renderCohortsView() {
@@ -1360,7 +1395,7 @@
             const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(crs.id);
             const accessLabel = canEdit ? "Full Roster Access" : "Read-Only Archive";
             const badgeClass = canEdit ? "ws-chip-green" : "ws-chip-blue";
-            contentHtml += `<div class="ws-card" onclick="renderAttendanceSheet('${crs.id}')"><h3>${crs.name}</h3><p>${crs.students.length} Enrolled Candidates</p><div style="margin-top: 14px;"><span class="ws-chip ${badgeClass}">${accessLabel}</span></div></div>`;
+            contentHtml += `<div class="ws-card" onclick="renderAttendanceSheet('${activeCohort.id}', '${crs.id}')"><h3>${crs.name}</h3><p>${crs.students.length} Enrolled Candidates</p><div style="margin-top: 14px;"><span class="ws-chip ${badgeClass}">${accessLabel}</span></div></div>`;
           });
           contentHtml += `</div>`;
         }
@@ -1379,33 +1414,31 @@
         </div>`;
     }
 
-    async function renderAttendanceSheet(courseId, skipCloudSync = false) {
+    async function renderAttendanceSheet(cohortId, courseId, skipCloudSync = false) {
       // 1. CAPTURE CURRENT SCROLL POSITION BEFORE RE-RENDERING
       const currentContainer = document.querySelector('.ws-table-container');
       if (currentContainer && currentModalCourseId === null) {
         savedTableScrollLeft = currentContainer.scrollLeft;
       }
 
-      saveViewState("sheet", courseId); 
+      saveViewState("sheet", courseId, cohortId); 
       if (!skipCloudSync) await syncDatabaseFromCloud();
 
+      activeCohort = APP_DATA.cohorts.find(c => c.id === cohortId);
       if (!activeCohort) {
-        for (const c of APP_DATA.cohorts) {
-          const found = c.courses.find(x => x.id === courseId);
-          if (found) { activeCohort = c; activeCourse = found; break; }
-        }
-      } else {
-        activeCourse = activeCohort.courses.find(c => c.id === courseId);
+        renderCohortsView();
+        return;
+      }
+      activeCourse = activeCohort.courses.find(c => c.id === courseId);
+      if (!activeCourse) {
+        renderCoursesView(cohortId);
+        return;
       }
       
       updateBreadcrumbs();
 
-      if (!attendanceDB[courseId]) attendanceDB[courseId] = { sessions: [], records: {}, incidents: {} };
-      if (!attendanceDB[courseId].incidents) attendanceDB[courseId].incidents = {};
-      if (!attendanceDB[courseId].notes) attendanceDB[courseId].notes = {};
-      if (!attendanceDB[courseId].sessionNotes) attendanceDB[courseId].sessionNotes = {}; // New Overall Note Support
-
-      const courseRecord = attendanceDB[courseId];
+      // Use cohort-isolated record (auto-clones legacy data safely if first time)
+      const courseRecord = getOrInitCourseRecord(cohortId, courseId);
       const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(courseId);
       courseRecord.sessions.sort((a, b) => new Date(a) - new Date(b));
 
@@ -1417,8 +1450,8 @@
               <span style="font-size: 0.775rem; color: var(--text-muted);">${canEdit ? 'Authorized for Session Entries & Incident Logging' : 'Read-Only Observation State'}</span>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
-              ${canEdit ? `<button class="ws-btn ws-btn-primary ws-no-print" onclick="openCalendarModal('${courseId}')">+ Add Class Date</button>` : ''}
-              ${canEdit ? `<button class="ws-btn ws-btn-primary ws-no-print" onclick="openIncidentModal('${courseId}')">Add Incident Report</button>` : ''}
+              ${canEdit ? `<button class="ws-btn ws-btn-primary ws-no-print" onclick="openCalendarModal('${cohortId}', '${courseId}')">+ Add Class Date</button>` : ''}
+              ${canEdit ? `<button class="ws-btn ws-btn-primary ws-no-print" onclick="openIncidentModal('${cohortId}', '${courseId}')">Add Incident Report</button>` : ''}
               <button class="ws-btn ws-btn-outline ws-no-print" onclick="window.print()">Export Class Summary</button>
             </div>
           </div>
@@ -1430,7 +1463,6 @@
                     <th class="sticky-col-id">Candidate ID</th>
                     <th class="sticky-col-name">Student Full Name</th>
                     ${courseRecord.sessions.map(s => {
-                      // Session Overall Note Indicator
                       const sNote = courseRecord.sessionNotes[s] || "";
                       const sNoteHtml = sNote ? `<div class="session-note-indicator" title="${sNote.replace(/"/g, '&quot;')}">📝 Note</div>` : '';
 
@@ -1440,9 +1472,9 @@
                         <br>${sNoteHtml}
                         ${canEdit ? `
                           <div class="date-action-badge ws-no-print" onclick="event.stopPropagation()">
-                            <button type="button" class="badge-icon-btn btn-quick" title="Mark Unmarked as Present" onclick="event.stopPropagation(); markAllPresent('${courseId}', '${s}')"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></button>
-                            <button type="button" class="badge-icon-btn btn-edit" title="Edit Session Date & Notes" onclick="event.stopPropagation(); openEditSessionModal('${courseId}', '${s}')"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
-                            <button type="button" class="badge-icon-btn btn-delete" title="Delete Session" onclick="event.stopPropagation(); deleteSession('${courseId}', '${s}')"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
+                            <button type="button" class="badge-icon-btn btn-quick" title="Mark Unmarked as Present" onclick="event.stopPropagation(); markAllPresent('${cohortId}', '${courseId}', '${s}')"><svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg></button>
+                            <button type="button" class="badge-icon-btn btn-edit" title="Edit Session Date & Notes" onclick="event.stopPropagation(); openEditSessionModal('${cohortId}', '${courseId}', '${s}')"><svg viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>
+                            <button type="button" class="badge-icon-btn btn-delete" title="Delete Session" onclick="event.stopPropagation(); deleteSession('${cohortId}', '${courseId}', '${s}')"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg></button>
                           </div>
                         ` : ''}
                       </th>
@@ -1459,14 +1491,12 @@
         const sRecords = courseRecord.records[student.id];
 
         // Process Private Teacher Profile Notes
-        if (!courseRecord.teacherNotes) courseRecord.teacherNotes = {};
         const allNotesForStudent = courseRecord.teacherNotes[student.id] || {};
         
         let combinedNoteText = "";
         let dotsHtml = '';
         
         if (currentUser.username === 'sezad') {
-          // System Admin sees ALL notes mapped to their corresponding teachers
           Object.keys(allNotesForStudent).forEach(tUsername => {
             const noteObj = allNotesForStudent[tUsername];
             if (noteObj.note.trim() !== "") {
@@ -1475,7 +1505,6 @@
             dotsHtml += `<div class="profile-dot dot-${noteObj.rating}"></div>`;
           });
         } else if (currentUser.role !== 'admin') { 
-          // Instructors strictly see ONLY their own private notes
           const myNote = allNotesForStudent[currentUser.username];
           if (myNote) {
             if (myNote.note.trim() !== "") {
@@ -1510,7 +1539,7 @@
         html += `
           <tr>
             <td class="sticky-col-id" style="font-family: monospace; font-size: 0.8rem; color: var(--text-muted);">${student.id}</td>
-            <td class="sticky-col-name" style="cursor: context-menu;" oncontextmenu="event.preventDefault(); openStudentProfileModal('${courseId}', '${student.id}', '${student.name.replace(/'/g, "\\'")}');">
+            <td class="sticky-col-name" style="cursor: context-menu;" oncontextmenu="event.preventDefault(); openStudentProfileModal('${cohortId}', '${courseId}', '${student.id}', '${student.name.replace(/'/g, "\\'")}');">
               <div class="name-cell-wrapper">
                 <strong>${student.name}</strong>
                 <div style="display: flex; gap: 4px;">${dotsHtml}</div>
@@ -1533,9 +1562,9 @@
 
                 return `
                   <td class="session-date-cell ws-hide-on-summary-print">
-                    <div class="cell-wrapper" ${tooltipStr} oncontextmenu="event.preventDefault(); openQuickNoteModal('${courseId}', '${student.id}', '${sessionDate}');">
+                    <div class="cell-wrapper" ${tooltipStr} oncontextmenu="event.preventDefault(); openQuickNoteModal('${cohortId}', '${courseId}', '${student.id}', '${sessionDate}');">
                       ${dogEarHtml}
-                      <select class="${selectClass}" ${!canEdit ? 'disabled' : ''} onchange="updateStatus('${courseId}', '${student.id}', '${sessionDate}', this.value)">
+                      <select class="${selectClass}" ${!canEdit ? 'disabled' : ''} onchange="updateStatus('${cohortId}', '${courseId}', '${student.id}', '${sessionDate}', this.value)">
                         <option value="" ${currentVal === '' ? 'selected' : ''}>Choose one</option>
                         <option value="Present" ${currentVal === 'Present' ? 'selected' : ''}>Present</option>
                         <option value="Absent" ${currentVal === 'Absent' ? 'selected' : ''}>Absent</option>
@@ -1547,7 +1576,7 @@
                   </td>`;
               }).join('')}
            <td class="attendance-rate-cell"><span class="ws-chip ${rateChip}">${rateText}</span></td>
-            <td class="ws-no-print ws-hide-on-summary-print" style="text-align: center;"><button class="ws-btn ws-btn-outline ws-btn-sm" onclick="openStudentReport('${courseId}', '${student.id}')">Individual Report</button></td>
+            <td class="ws-no-print ws-hide-on-summary-print" style="text-align: center;"><button class="ws-btn ws-btn-outline ws-btn-sm" onclick="openStudentReport('${cohortId}', '${courseId}', '${student.id}')">Individual Report</button></td>
           </tr>`;
       });
       html += `</tbody></table></div></div></div>`;
@@ -1561,8 +1590,10 @@
       }
     }
 
-    function openCalendarModal(courseId) {
-      currentModalCourseId = courseId; currentEditingDate = null;
+    function openCalendarModal(cohortId, courseId) {
+      currentModalCohortId = cohortId;
+      currentModalCourseId = courseId;
+      currentEditingDate = null;
       document.getElementById("calendar-modal-title").innerText = "Schedule New Class Session";
       document.getElementById("calendar-modal-desc").innerText = "Pick a class date from the calendar. Columns will be ordered chronologically.";
       document.getElementById("calendar-submit-btn").innerText = "Create Session";
@@ -1572,10 +1603,12 @@
       document.getElementById("calendar-modal").style.display = "flex";
     }
 
-    function openEditSessionModal(courseId, oldDate) {
-      currentModalCourseId = courseId; currentEditingDate = oldDate;
+    function openEditSessionModal(cohortId, courseId, oldDate) {
+      currentModalCohortId = cohortId;
+      currentModalCourseId = courseId;
+      currentEditingDate = oldDate;
       
-      const courseRecord = attendanceDB[courseId];
+      const courseRecord = getOrInitCourseRecord(cohortId, courseId);
       let existingSessionNote = (courseRecord.sessionNotes && courseRecord.sessionNotes[oldDate]) ? courseRecord.sessionNotes[oldDate] : "";
 
       document.getElementById("calendar-modal-title").innerText = "Edit Class Session Date & Notes";
@@ -1587,26 +1620,30 @@
       document.getElementById("calendar-modal").style.display = "flex";
     }
 
-    function closeCalendarModal() { document.getElementById("calendar-modal").style.display = "none"; currentModalCourseId = null; currentEditingDate = null; }
+    function closeCalendarModal() {
+      document.getElementById("calendar-modal").style.display = "none";
+      currentModalCohortId = null;
+      currentModalCourseId = null;
+      currentEditingDate = null;
+    }
 
     function confirmSessionDateAction() {
       const selectedDate = document.getElementById("calendar-date-input").value;
       const sessionNoteText = document.getElementById("calendar-session-note").value.trim();
       const errEl = document.getElementById("calendar-error");
+      const targetCohortId = currentModalCohortId;
       const targetCourseId = currentModalCourseId;
       
       if (!selectedDate) { errEl.innerText = "Please choose a valid date from the calendar."; errEl.style.display = "block"; return; }
       
-      if (!attendanceDB[targetCourseId]) attendanceDB[targetCourseId] = { sessions: [], records: {}, incidents: {} };
-      const courseRecord = attendanceDB[targetCourseId];
-      if (!courseRecord.sessionNotes) courseRecord.sessionNotes = {}; // Ensure struct exists
+      const dbKey = getAttendanceKey(targetCohortId, targetCourseId);
+      const courseRecord = getOrInitCourseRecord(targetCohortId, targetCourseId);
 
       if (currentEditingDate) {
         if (selectedDate !== currentEditingDate && courseRecord.sessions.includes(selectedDate)) { errEl.innerText = `A class session already exists for ${formatClassDate(selectedDate)}.`; errEl.style.display = "block"; return; }
         const idx = courseRecord.sessions.indexOf(currentEditingDate);
         if (idx !== -1) courseRecord.sessions[idx] = selectedDate;
         
-        // Migrate student records to new date
         Object.keys(courseRecord.records).forEach(stId => {
           if (courseRecord.records[stId][currentEditingDate] !== undefined) {
             courseRecord.records[stId][selectedDate] = courseRecord.records[stId][currentEditingDate];
@@ -1614,7 +1651,6 @@
           }
         });
 
-        // Migrate overall session note to new date
         if (sessionNoteText) {
           courseRecord.sessionNotes[selectedDate] = sessionNoteText;
         } else {
@@ -1629,12 +1665,10 @@
         if (sessionNoteText) courseRecord.sessionNotes[selectedDate] = sessionNoteText;
 
         let studentList = [];
-        if (activeCourse && activeCourse.id === targetCourseId) studentList = activeCourse.students;
-        else {
-          for (const cohort of APP_DATA.cohorts) {
-            const match = cohort.courses.find(c => c.id === targetCourseId);
-            if (match) { studentList = match.students; break; }
-          }
+        const cohort = APP_DATA.cohorts.find(c => c.id === targetCohortId);
+        if (cohort) {
+          const match = cohort.courses.find(c => c.id === targetCourseId);
+          if (match) studentList = match.students;
         }
         studentList.forEach(st => {
           if (!courseRecord.records[st.id]) courseRecord.records[st.id] = {};
@@ -1643,30 +1677,41 @@
       }
 
       courseRecord.sessions.sort((a, b) => new Date(a) - new Date(b));
-      saveAttendanceDBLocally(); dispatchCloudMutation(targetCourseId); closeCalendarModal(); renderAttendanceSheet(targetCourseId, true);
+      saveAttendanceDBLocally();
+      dispatchCloudMutation(dbKey);
+      closeCalendarModal();
+      renderAttendanceSheet(targetCohortId, targetCourseId, true);
     }
 
-    function deleteSession(courseId, sessionDate) {
-      if (!confirm(`Are you sure you want to delete the class session on ${formatClassDate(sessionDate)}? All recorded attendance for this date will be permanently cleared.`)) return;
-      const courseRecord = attendanceDB[courseId];
-      if (!courseRecord) return;
+    function deleteSession(cohortId, courseId, sessionDate) {
+      if (!confirm(`Are you sure you want to delete the class session on ${formatClassDate(sessionDate)}? All recorded attendance for this date in this cohort will be permanently cleared.`)) return;
+      const dbKey = getAttendanceKey(cohortId, courseId);
+      const courseRecord = getOrInitCourseRecord(cohortId, courseId);
       
       courseRecord.sessions = courseRecord.sessions.filter(d => d !== sessionDate);
       if (courseRecord.sessionNotes) delete courseRecord.sessionNotes[sessionDate];
       Object.keys(courseRecord.records).forEach(stId => delete courseRecord.records[stId][sessionDate]);
       
-      saveAttendanceDBLocally(); dispatchCloudMutation(courseId); renderAttendanceSheet(courseId, true);
+      saveAttendanceDBLocally();
+      dispatchCloudMutation(dbKey);
+      renderAttendanceSheet(cohortId, courseId, true);
     }
 
-    function updateStatus(courseId, studentId, sessionDate, newStatus) {
-      if (!attendanceDB[courseId].records[studentId]) attendanceDB[courseId].records[studentId] = {};
-      attendanceDB[courseId].records[studentId][sessionDate] = newStatus;
-      saveAttendanceDBLocally(); dispatchCloudMutation(courseId); renderAttendanceSheet(courseId, true);
+    function updateStatus(cohortId, courseId, studentId, sessionDate, newStatus) {
+      const dbKey = getAttendanceKey(cohortId, courseId);
+      const courseRecord = getOrInitCourseRecord(cohortId, courseId);
+      if (!courseRecord.records[studentId]) courseRecord.records[studentId] = {};
+      courseRecord.records[studentId][sessionDate] = newStatus;
+      saveAttendanceDBLocally();
+      dispatchCloudMutation(dbKey);
+      renderAttendanceSheet(cohortId, courseId, true);
     }
 
-    function openIncidentModal(courseId) {
+    function openIncidentModal(cohortId, courseId) {
+      currentModalCohortId = cohortId;
       currentModalCourseId = courseId;
-      const course = activeCohort.courses.find(c => c.id === courseId);
+      const cohort = APP_DATA.cohorts.find(c => c.id === cohortId);
+      const course = cohort.courses.find(c => c.id === courseId);
       document.getElementById("incident-student-select").innerHTML = course.students.map(s => `<option value="${s.id}">${s.name} (${s.id})</option>`).join("");
       document.getElementById("incident-date-input").value = new Date().toISOString().split('T')[0];
       document.getElementById("incident-notes-input").value = "";
@@ -1674,7 +1719,11 @@
       document.getElementById("incident-modal").style.display = "flex";
     }
 
-    function closeIncidentModal() { document.getElementById("incident-modal").style.display = "none"; currentModalCourseId = null; }
+    function closeIncidentModal() {
+      document.getElementById("incident-modal").style.display = "none";
+      currentModalCohortId = null;
+      currentModalCourseId = null;
+    }
 
     function confirmSaveIncident() {
       const studentId = document.getElementById("incident-student-select").value;
@@ -1685,8 +1734,10 @@
 
       if (!date || !notes) { errEl.innerText = "Please specify the date and notes."; errEl.style.display = "block"; return; }
 
-      const courseRecord = attendanceDB[currentModalCourseId];
-      if (!courseRecord.incidents) courseRecord.incidents = {};
+      const targetCohortId = currentModalCohortId;
+      const targetCourseId = currentModalCourseId;
+      const dbKey = getAttendanceKey(targetCohortId, targetCourseId);
+      const courseRecord = getOrInitCourseRecord(targetCohortId, targetCourseId);
       if (!courseRecord.incidents[studentId]) courseRecord.incidents[studentId] = [];
 
       courseRecord.incidents[studentId].push({
@@ -1694,42 +1745,34 @@
         recordedBy: currentUser ? currentUser.name : "Instructor", timestamp: new Date().toISOString()
       });
 
-      saveAttendanceDBLocally(); dispatchCloudMutation(currentModalCourseId); closeIncidentModal(); renderAttendanceSheet(currentModalCourseId, true);
+      saveAttendanceDBLocally();
+      dispatchCloudMutation(dbKey);
+      closeIncidentModal();
+      renderAttendanceSheet(targetCohortId, targetCourseId, true);
     }
 
-    function deleteIncidentRecord(courseId, studentId, incidentId) {
+    function deleteIncidentRecord(cohortId, courseId, studentId, incidentId) {
       if (!confirm("Are you sure you want to permanently delete this logged incident?")) return;
-      const courseRecord = attendanceDB[courseId];
+      const dbKey = getAttendanceKey(cohortId, courseId);
+      const courseRecord = getOrInitCourseRecord(cohortId, courseId);
       if (courseRecord && courseRecord.incidents && courseRecord.incidents[studentId]) {
         courseRecord.incidents[studentId] = courseRecord.incidents[studentId].filter(x => x.id !== incidentId);
-        saveAttendanceDBLocally(); dispatchCloudMutation(courseId); openStudentReport(courseId, studentId); renderAttendanceSheet(courseId, true);
+        saveAttendanceDBLocally();
+        dispatchCloudMutation(dbKey);
+        openStudentReport(cohortId, courseId, studentId);
+        renderAttendanceSheet(cohortId, courseId, true);
       }
     }
 
-    function openStudentReport(courseId, studentId) {
-      let course = null;
-      let cohort = null;
-      
-      if (activeCourse && activeCourse.id === courseId) {
-        course = activeCourse;
-        cohort = activeCohort;
-      } else {
-        for (const c of APP_DATA.cohorts) {
-          const found = c.courses.find(x => x.id === courseId);
-          if (found) {
-            cohort = c;
-            course = found;
-            break;
-          }
-        }
-      }
+    function openStudentReport(cohortId, courseId, studentId) {
+      const cohort = APP_DATA.cohorts.find(c => c.id === cohortId);
+      const course = cohort ? cohort.courses.find(x => x.id === courseId) : null;
 
       if (!course) {
         alert("Course record could not be resolved.");
         return;
       }
 
-      // Clean and trim IDs to prevent subtle mismatch failures
       const targetId = String(studentId).trim();
       const student = course.students.find(s => String(s.id).trim() === targetId);
       
@@ -1738,9 +1781,8 @@
         return;
       }
 
-      const courseRecord = attendanceDB[courseId] || { sessions: [], records: {}, incidents: {} };
+      const courseRecord = getOrInitCourseRecord(cohortId, courseId);
       
-      // Flexible lookup for attendance records and incidents supporting slight key variations
       let sRecords = courseRecord.records[targetId] || {};
       if (Object.keys(sRecords).length === 0) {
         const foundKey = Object.keys(courseRecord.records).find(k => String(k).trim() === targetId);
@@ -1859,7 +1901,7 @@
                 <div style="display: flex; align-items: center; gap: 8px;">
                   <span style="font-size: 0.75rem; color: var(--text-muted);">Logged by: ${inc.recordedBy}</span>
                   ${canEdit ? `
-                    <button class="ws-no-print" title="Delete incident" style="background:none; border:none; color:var(--text-light); cursor:pointer; font-size:0.9rem;" onmouseover="this.style.color='var(--status-red-text)'" onmouseout="this.style.color='var(--text-light)'" onclick="deleteIncidentRecord('${courseId}', '${targetId}', '${inc.id}')">✕</button>
+                    <button class="ws-no-print" title="Delete incident" style="background:none; border:none; color:var(--text-light); cursor:pointer; font-size:0.9rem;" onmouseover="this.style.color='var(--status-red-text)'" onmouseout="this.style.color='var(--text-light)'" onclick="deleteIncidentRecord('${cohortId}', '${courseId}', '${targetId}', '${inc.id}')">✕</button>
                   ` : ''}
                 </div>
               </div>
@@ -1883,8 +1925,9 @@
       window.onafterprint = () => { document.body.classList.remove("printing-individual-dossier"); };
     }
 
-    function markAllPresent(courseId, sessionDate) {
-      const courseRecord = attendanceDB[courseId];
+    function markAllPresent(cohortId, courseId, sessionDate) {
+      const dbKey = getAttendanceKey(cohortId, courseId);
+      const courseRecord = getOrInitCourseRecord(cohortId, courseId);
       if (!courseRecord || !activeCourse) return;
       let updatedCount = 0;
       activeCourse.students.forEach(student => {
@@ -1894,14 +1937,18 @@
           courseRecord.records[student.id][sessionDate] = "Present"; updatedCount++;
         }
       });
-      if (updatedCount > 0) { saveAttendanceDBLocally(); dispatchCloudMutation(courseId); renderAttendanceSheet(courseId, true); }
+      if (updatedCount > 0) {
+        saveAttendanceDBLocally();
+        dispatchCloudMutation(dbKey);
+        renderAttendanceSheet(cohortId, courseId, true);
+      }
     }
 
-    function openQuickNoteModal(courseId, studentId, sessionDate) {
+    function openQuickNoteModal(cohortId, courseId, studentId, sessionDate) {
       const canEdit = currentUser.editableCourses && currentUser.editableCourses.includes(courseId);
       if (!canEdit) return false;
-      currentNoteContext = { courseId, studentId, sessionDate };
-      const courseRecord = attendanceDB[courseId];
+      currentNoteContext = { cohortId, courseId, studentId, sessionDate };
+      const courseRecord = getOrInitCourseRecord(cohortId, courseId);
       let existingNote = "";
       if (courseRecord.notes && courseRecord.notes[studentId] && courseRecord.notes[studentId][sessionDate]) existingNote = courseRecord.notes[studentId][sessionDate];
       document.getElementById("quick-note-input").value = existingNote;
@@ -1910,18 +1957,24 @@
       document.getElementById("quick-note-input").focus();
     }
 
-    function closeQuickNoteModal() { document.getElementById("quick-note-modal").style.display = "none"; currentNoteContext = { courseId: null, studentId: null, sessionDate: null }; }
+    function closeQuickNoteModal() {
+      document.getElementById("quick-note-modal").style.display = "none";
+      currentNoteContext = { cohortId: null, courseId: null, studentId: null, sessionDate: null };
+    }
 
     function saveQuickNote() {
-      const { courseId, studentId, sessionDate } = currentNoteContext;
-      if (!courseId) return;
+      const { cohortId, courseId, studentId, sessionDate } = currentNoteContext;
+      if (!cohortId || !courseId) return;
       const noteText = document.getElementById("quick-note-input").value.trim();
-      const courseRecord = attendanceDB[courseId];
-      if (!courseRecord.notes) courseRecord.notes = {};
+      const dbKey = getAttendanceKey(cohortId, courseId);
+      const courseRecord = getOrInitCourseRecord(cohortId, courseId);
       if (!courseRecord.notes[studentId]) courseRecord.notes[studentId] = {};
       if (noteText === "") delete courseRecord.notes[studentId][sessionDate];
       else courseRecord.notes[studentId][sessionDate] = noteText;
-      saveAttendanceDBLocally(); dispatchCloudMutation(courseId); closeQuickNoteModal(); renderAttendanceSheet(courseId, true);
+      saveAttendanceDBLocally();
+      dispatchCloudMutation(dbKey);
+      closeQuickNoteModal();
+      renderAttendanceSheet(cohortId, courseId, true);
     }
     function deleteQuickNote() { document.getElementById("quick-note-input").value = ""; saveQuickNote(); }
 
@@ -1934,7 +1987,7 @@
 
       const studentMasterList = {}; const allCohortCourses = activeCohort.courses;
       allCohortCourses.forEach(course => {
-        const courseRecord = attendanceDB[course.id] || { sessions: [], records: {} };
+        const courseRecord = getOrInitCourseRecord(activeCohort.id, course.id);
         course.students.forEach(student => {
           if (!studentMasterList[student.id]) studentMasterList[student.id] = { name: student.name, id: student.id, courseRates: {} };
           const sRecords = courseRecord.records[student.id] || {};
@@ -1985,7 +2038,7 @@
     // ==========================================
     async function handleExportSelection(selectElement) {
       const cohortId = selectElement.value;
-      if (!cohortId) return; // User selected the placeholder
+      if (!cohortId) return;
       
       selectElement.disabled = true;
       const originalText = selectElement.options[selectElement.selectedIndex].text;
@@ -1998,45 +2051,37 @@
         alert("Export failed: " + err.message + "\nCheck console for details.");
       }
       
-      // Reset dropdown quietly
       selectElement.disabled = false;
       selectElement.options[selectElement.selectedIndex].text = originalText;
       selectElement.value = "";
     }
 
     async function downloadCohortXLSX(cohortId) {
-      // 1. Ensure we have the latest data before exporting
       await syncDatabaseFromCloud();
 
       const cohort = APP_DATA.cohorts.find(c => c.id === cohortId);
       if (!cohort) throw new Error("Cohort data could not be found.");
 
-      // 2. Initialize a new native ExcelJS Workbook
       const wb = new ExcelJS.Workbook();
-
-      // 3. Loop through every course in this specific cohort to create Tabs
       const cohortCourses = cohort.courses || [];
       if (cohortCourses.length === 0) throw new Error("This cohort has no courses assigned to it yet.");
 
       cohortCourses.forEach((course, index) => {
-        const courseRecord = attendanceDB[course.id] || { sessions: [], records: {} };
+        const courseRecord = getOrInitCourseRecord(cohort.id, course.id);
         const sessionsList = courseRecord.sessions || [];
         const studentList = course.students || [];
 
-        // Tab name (unique and clean)
         let tabName = (course.name || `Course_${index}`).substring(0, 31).replace(/[\]\[*?:\/']/g, '');
         const ws = wb.addWorksheet(tabName);
 
-        // Build Headers (Columns)
         const headers = ['Candidate ID', 'Student Name'];
         sessionsList.forEach(date => headers.push(formatClassDate(date)));
         headers.push('Attendance %');
 
-        // Apply Header Formatting
         const headerRow = ws.addRow(headers);
         headerRow.height = 22; 
         headerRow.eachCell((cell) => {
-          cell.font = { bold: true, size: 13 }; // 2pt larger than default 11
+          cell.font = { bold: true, size: 13 };
           cell.alignment = { horizontal: 'center', vertical: 'middle' };
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFB7E1CD' } };
           cell.border = {
@@ -2047,7 +2092,6 @@
           };
         });
 
-        // Fill student rows
         studentList.forEach(student => {
           const sRecords = courseRecord.records ? (courseRecord.records[student.id] || {}) : {};
           let attendedCount = 0;
@@ -2057,7 +2101,7 @@
           
           sessionsList.forEach(date => {
             let status = sRecords[date] || "";
-            if (status === "") status = "N/A"; // Unmarked gets "N/A"
+            if (status === "") status = "N/A";
             rowData.push(status);
             
             if (status !== "N/A") {
@@ -2076,9 +2120,7 @@
           
           const dataRow = ws.addRow(rowData);
           
-          // Apply Cell Formatting to Data Rows
           dataRow.eachCell((cell, colNumber) => {
-             // Add a clean border to all data cells
              cell.border = {
                top: {style:'thin', color: {argb:'FFEEEEEE'}},
                left: {style:'thin', color: {argb:'FFEEEEEE'}},
@@ -2087,18 +2129,15 @@
              };
 
              if (colNumber === 1 || colNumber === 2) {
-                // Names and IDs are Left Aligned
                 cell.alignment = { horizontal: 'left', vertical: 'middle' };
              } else if (colNumber === headers.length) {
-                // Percentage is normally middle aligned
                 cell.alignment = { horizontal: 'center', vertical: 'middle' };
              } else {
-                // Attendance Info is middle aligned
                 cell.alignment = { horizontal: 'center', vertical: 'middle' };
                 
                 const val = cell.value;
-                let bgColor = "FFFFFFFF"; // Default White
-                let fontColor = "FF000000"; // Default Black
+                let bgColor = "FFFFFFFF";
+                let fontColor = "FF000000";
                 let isBold = false;
 
                 if (val === "Present") { 
@@ -2108,9 +2147,9 @@
                 } else if (val === "Absent Informed") { 
                   bgColor = "FFFFE570"; 
                 } else if (val === "Late") { 
-                  bgColor = "FF753800"; fontColor = "FFFFFFFF"; // White text applied to dark brown
+                  bgColor = "FF753800"; fontColor = "FFFFFFFF";
                 } else if (val === "Joined online") { 
-                  bgColor = "FF34A853"; fontColor = "FFFFFFFF"; // White text applied to dark green
+                  bgColor = "FF34A853"; fontColor = "FFFFFFFF";
                 } else if (val === "N/A") { 
                   isBold = true; 
                 }
@@ -2121,7 +2160,6 @@
           });
         });
 
-        // Dynamically Adjust Column Widths based on content length
         ws.columns.forEach(column => {
           let maxLength = 0;
           column.eachCell({ includeEmpty: true }, cell => {
@@ -2134,7 +2172,6 @@
         });
       });
 
-      // 4. Trigger the exact file download
       const buffer = await wb.xlsx.writeBuffer();
       const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const link = document.createElement("a");
@@ -2150,7 +2187,7 @@
     // ==========================================
     // TEACHER-PRIVATE STUDENT PROFILES
     // ==========================================
-    let currentProfileContext = { courseId: null, studentId: null };
+    let currentProfileContext = { cohortId: null, courseId: null, studentId: null };
 
     function selectProfileColor(val) {
       document.getElementById('profile-rating-select').value = val;
@@ -2164,17 +2201,16 @@
       });
     }
 
-    function openStudentProfileModal(courseId, studentId, studentName) {
-      // Standard Admins are strictly blocked from viewing or adding private profiles
+    function openStudentProfileModal(cohortId, courseId, studentId, studentName) {
       if (currentUser.role === 'admin' && currentUser.username !== 'sezad') {
         return; 
       }
       
-      currentProfileContext = { courseId, studentId };
+      currentProfileContext = { cohortId, courseId, studentId };
       document.getElementById("profile-student-name").innerText = studentName;
       
-      const courseRecord = attendanceDB[courseId];
-      let existingRating = "gray"; // Default
+      const courseRecord = getOrInitCourseRecord(cohortId, courseId);
+      let existingRating = "gray";
       let existingNote = "";
       let hasProfile = false;
       
@@ -2198,17 +2234,16 @@
     }
 
     function saveStudentProfile(isDelete = false) {
-      const { courseId, studentId } = currentProfileContext;
-      if (!courseId) return;
+      const { cohortId, courseId, studentId } = currentProfileContext;
+      if (!cohortId || !courseId) return;
       
       const rating = document.getElementById("profile-rating-select").value;
       const noteText = document.getElementById("profile-note-input").value.trim();
       
-      const courseRecord = attendanceDB[courseId];
-      if (!courseRecord.teacherNotes) courseRecord.teacherNotes = {};
+      const dbKey = getAttendanceKey(cohortId, courseId);
+      const courseRecord = getOrInitCourseRecord(cohortId, courseId);
       if (!courseRecord.teacherNotes[studentId]) courseRecord.teacherNotes[studentId] = {};
       
-      // If we clicked Remove Tag/Note, completely delete the object. Otherwise, save the color/text.
       if (isDelete) {
         delete courseRecord.teacherNotes[studentId][currentUser.username];
       } else {
@@ -2216,13 +2251,12 @@
       }
       
       saveAttendanceDBLocally();
-      dispatchCloudMutation(courseId);
+      dispatchCloudMutation(dbKey);
       closeStudentProfileModal();
-      renderAttendanceSheet(courseId, true);
+      renderAttendanceSheet(cohortId, courseId, true);
     }
 
     function deleteStudentProfile() {
-      // Clear the inputs just in case, then run the save function in delete mode
       document.getElementById("profile-note-input").value = "";
       saveStudentProfile(true);
     }
